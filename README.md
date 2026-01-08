@@ -136,35 +136,53 @@ tribeat/
 - [x] Configuration Pusher (placeholders)
 - [x] Variables d'environnement
 
-## ✅ Phase 3 - Complétée
+## ✅ Phase 4 - Complétée
 
-- [x] Configuration NextAuth.js avec Prisma Adapter
-- [x] Middleware Edge-compatible (getToken) ⚡
-- [x] Typage TypeScript strict (role NON optionnel)
-- [x] Utilities auth centralisées
-- [x] Pages login et register (validation Zod)
-- [x] API route register (hash bcrypt)
-- [x] Page 403 (Accès Refusé)
-- [x] Footer discret admin ("Ghost Access") 👻
-- [x] Dashboards temporaires (admin, coach, sessions)
-- [x] Double sécurité (middleware + serveur)
-- [x] Redirections intelligentes par rôle
-- [x] Toast notifications (Sonner)
-- [x] Test IDs pour E2E testing
+- [x] Server Actions sécurisées (ui-settings, translations, sessions, users, export)
+- [x] Injection dynamique thème (ThemeProvider + CSS Variables)
+- [x] Layout Admin complet (Sidebar + Header + double sécurité)
+- [x] Dashboard avec stats réelles depuis DB
+- [x] **Éditeur de Thème** (couleurs, fonts, radius, PWA) - PRIORITÉ ✅
+- [x] Éditeur Traductions (FR/EN/DE) - Table éditable
+- [x] CRUD Sessions (création, liste, suppression)
+- [x] Gestion Utilisateurs (changement rôles, suppression)
+- [x] Export Données (CSV/JSON : users, sessions, settings, translations)
+- [x] Zéro hardcoding (tout depuis DB)
+- [x] Modifications appliquées immédiatement sans redéploiement
+- [x] Architecture extensible (ajout clés facile)
 
-### 🔐 Credentials de Test (Phase 3)
+### 🎨 Fonctionnalités Admin
 
-**Super Admin:**
-- Email: `admin@tribeat.com` | Password: `Admin123!`
+**Dashboard** (`/admin/dashboard`)
+- Vue d'ensemble avec stats (users, sessions, settings, translations)
+- Actions rapides vers toutes les sections
 
-**Coach:**
-- Email: `coach@tribeat.com` | Password: `Demo123!`
+**Éditeur de Thème** (`/admin/theme`)
+- Couleurs : Primary, Secondary, Background, Foreground
+- Typographie : Font family, Border radius
+- PWA : Nom app, Couleur thème
+- Sauvegarde batch + application immédiate
 
-**Participant:**
-- Email: `participant@tribeat.com` | Password: `Demo123!`
+**Traductions** (`/admin/translations`)
+- Édition FR/EN/DE côte à côte
+- Ajout/Suppression de clés
+- Modification inline (onBlur)
 
-**Nouveau compte:**
-- Inscription sur `/auth/register`
+**Sessions** (`/admin/sessions`)
+- Liste sessions avec coach, date, status
+- Création session (titre, description, média, planning)
+- Suppression
+
+**Utilisateurs** (`/admin/users`)
+- Liste avec nom, email, rôle, stats
+- Changement de rôle (dropdown)
+- Suppression (protection compte admin)
+
+**Export** (`/admin/export`)
+- Users (CSV + JSON)
+- Sessions (CSV + JSON)
+- UI Settings (JSON)
+- Translations (JSON)
 
 ## 🎯 Prochaines Phases
 
