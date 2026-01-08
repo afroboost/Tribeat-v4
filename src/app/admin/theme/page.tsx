@@ -6,7 +6,6 @@
  * sans redéploiement
  */
 
-import { AdminLayout } from '@/components/admin/AdminLayout';
 import { ThemeEditor } from '@/components/admin/ThemeEditor';
 import { getUISettingsByCategory } from '@/actions/ui-settings';
 
@@ -21,8 +20,7 @@ export default async function AdminThemePage() {
   const pwaSettings = pwaResult.success ? pwaResult.data : [];
 
   return (
-    <AdminLayout>
-      <div className="space-y-6">
+    <div className="space-y-6">
         {/* Header */}
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
