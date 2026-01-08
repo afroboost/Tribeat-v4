@@ -17,8 +17,8 @@ export default async function AdminDashboardPage() {
 
   return (
     <div className="space-y-6">
-        {/* Welcome Card */}
-        <Card>
+      {/* Welcome Card */}
+      <Card>
           <CardHeader>
             <CardTitle>Vue d'Ensemble</CardTitle>
           </CardHeader>
