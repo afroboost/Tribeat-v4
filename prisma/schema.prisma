@@ -146,7 +146,7 @@ enum SettingCategory {
 model UI_Settings {
   id       String          @id @default(cuid())
   key      String          @unique
-  value    String
+  value    String          @db.Text
   category SettingCategory
   updatedAt DateTime       @updatedAt
 
