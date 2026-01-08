@@ -136,29 +136,35 @@ tribeat/
 - [x] Configuration Pusher (placeholders)
 - [x] Variables d'environnement
 
-## ✅ Phase 2 - Complétée
+## ✅ Phase 3 - Complétée
 
-- [x] Script de seed Prisma (`prisma/seed.ts`)
-- [x] Seed UI_Settings (16 paramètres : Thème + PWA + Général)
-- [x] Seed Translations (54 traductions FR/EN/DE)
-- [x] Seed Users (3 utilisateurs : Admin, Coach, Participant)
-- [x] Seed Session de démonstration
-- [x] Migration Prisma testée avec succès
-- [x] Documentation complète
+- [x] Configuration NextAuth.js avec Prisma Adapter
+- [x] Middleware Edge-compatible (getToken) ⚡
+- [x] Typage TypeScript strict (role NON optionnel)
+- [x] Utilities auth centralisées
+- [x] Pages login et register (validation Zod)
+- [x] API route register (hash bcrypt)
+- [x] Page 403 (Accès Refusé)
+- [x] Footer discret admin ("Ghost Access") 👻
+- [x] Dashboards temporaires (admin, coach, sessions)
+- [x] Double sécurité (middleware + serveur)
+- [x] Redirections intelligentes par rôle
+- [x] Toast notifications (Sonner)
+- [x] Test IDs pour E2E testing
 
-### 🔑 Credentials de Test
+### 🔐 Credentials de Test (Phase 3)
 
 **Super Admin:**
-- Email: `admin@tribeat.com`
-- Password: `Admin123!`
+- Email: `admin@tribeat.com` | Password: `Admin123!`
 
-**Coach Demo:**
-- Email: `coach@tribeat.com`
-- Password: `Demo123!`
+**Coach:**
+- Email: `coach@tribeat.com` | Password: `Demo123!`
 
-**Participant Demo:**
-- Email: `participant@tribeat.com`
-- Password: `Demo123!`
+**Participant:**
+- Email: `participant@tribeat.com` | Password: `Demo123!`
+
+**Nouveau compte:**
+- Inscription sur `/auth/register`
 
 ## 🎯 Prochaines Phases
 
