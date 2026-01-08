@@ -123,7 +123,7 @@ model ChatMessage {
   id        String   @id @default(cuid())
   sessionId String
   userId    String
-  content   String   @db.Text
+  content   String   
   timestamp DateTime @default(now())
 
   session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -146,7 +146,7 @@ enum SettingCategory {
 model UI_Settings {
   id       String          @id @default(cuid())
   key      String          @unique
-  value    String          @db.Text
+  value    String          
   category SettingCategory
   updatedAt DateTime       @updatedAt
 
@@ -167,7 +167,7 @@ model Translation {
   id       String   @id @default(cuid())
   key      String   // Ex: "session.join_button"
   language Language
-  value    String   @db.Text
+  value    String   
   updatedAt DateTime @updatedAt
 
   @@unique([key, language])
