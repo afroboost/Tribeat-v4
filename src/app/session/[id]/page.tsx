@@ -11,6 +11,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Users, Clock, User } from 'lucide-react';
 
+// FORCE DYNAMIC
+export const dynamic = 'force-dynamic';
+
 interface SessionPageProps {
   params: Promise<{ id: string }>;
 }
@@ -23,26 +26,30 @@ export default async function SessionPage({ params }: SessionPageProps) {
     redirect(`/auth/login?callbackUrl=/session/${id}`);
   }
 
-  // Récupérer la session
-  const liveSession = await prisma.session.findUnique({
-    where: { id },
-    include: {
-      coach: { select: { id: true, name: true, avatar: true } },
-      participants: {
-        include: {
-          user: { select: { id: true, name: true, avatar: true } }
+  let liveSession: any = null;
+  
+  try {
+    liveSession = await prisma.session.findUnique({
+      where: { id },
+      include: {
+        coach: { select: { id: true, name: true, avatar: true } },
+        participants: {
+          include: {
+            user: { select: { id: true, name: true, avatar: true } }
+          }
         }
       }
-    }
-  });
+    });
+  } catch (e) {
+    console.error('DB Error:', e);
+  }
 
   if (!liveSession) {
     notFound();
   }
 
-  // Vérifier l'accès
   const isCoach = liveSession.coachId === session.user.id;
-  const isParticipant = liveSession.participants.some(p => p.userId === session.user.id);
+  const isParticipant = liveSession.participants.some((p: any) => p.userId === session.user.id);
   const isAdmin = session.user.role === 'SUPER_ADMIN';
   const hasAccess = isCoach || isParticipant || isAdmin || liveSession.status === 'LIVE';
 
