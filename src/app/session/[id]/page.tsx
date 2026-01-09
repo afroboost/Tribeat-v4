@@ -167,7 +167,7 @@ export default async function SessionPage({ params }: SessionPageProps) {
 
                 {/* Participants */}
                 {liveSession.participants.length > 0 ? (
-                  liveSession.participants.map((p) => (
+                  liveSession.participants.map((p: any) => (
                     <div key={p.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-700/30">
                       <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center">
                         <User className="w-4 h-4 text-gray-300" />
