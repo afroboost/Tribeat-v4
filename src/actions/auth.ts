@@ -123,3 +123,67 @@ export async function getSessionAction() {
     return null;
   }
 }
+
+/**
+ * Action d'inscription
+ */
+export async function registerAction(name: string, email: string, password: string): Promise<LoginResult> {
+  try {
+    // Vérifier si l'email existe déjà
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (existingUser) {
+      return { success: false, error: 'Cet email est déjà utilisé' };
+    }
+
+    // Hash du mot de passe
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Créer l'utilisateur
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: hashedPassword,
+        role: 'PARTICIPANT',
+      },
+    });
+
+    // Créer JWT token (auto-login)
+    const token = await new SignJWT({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('30d')
+      .setIssuedAt()
+      .sign(JWT_SECRET);
+
+    // Stocker dans un cookie
+    const cookieStore = await cookies();
+    cookieStore.set('tribeat-auth', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60,
+      path: '/',
+    });
+
+    return {
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
+    };
+  } catch (error) {
+    console.error('Register error:', error);
+    return { success: false, error: 'Une erreur est survenue' };
+  }
+}
