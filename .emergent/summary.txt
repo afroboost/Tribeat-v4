@@ -1,0 +1,146 @@
+<analysis>**original_problem_statement:**
+The user wants to build a full-stack application named Tribeat from scratch. The application is a platform for interactive live sessions.
+
+**PRODUCT REQUIREMENTS:**
+- **Stack:** Next.js 14 (App Router), PostgreSQL, Prisma, NextAuth.js, Pusher, Tailwind CSS, Shadcn/ui.
+- **Core Feature:** Interactive live sessions where a Coach is the master source for synchronized audio/video/image playback, and participants' clients align automatically. This is NOT a video conferencing tool.
+- **Audio:** A key feature is a Web Audio API-based mixer that can mix the main media source with up to 3 microphone inputs, controlled by the coach.
+- **Admin Dashboard:** A comprehensive, database-driven admin dashboard that is NOT publicly visible (Ghost Access). It must allow a  to manage:
+    - **Dynamic Theming:** Global site appearance (colors, fonts, radius) stored in a  table.
+    - **Dynamic Translations:** i18n key-values stored in a  table.
+    - **Sessions:** CRUD operations for live sessions.
+    - **Users:** Role management.
+    - **Data Export:** CSV/JSON export functionality.
+- **Authentication:** Robust authentication using NextAuth.js with a Prisma adapter, hashed passwords, and distinct roles (, , ).
+- **PWA:** The application must be a Progressive Web App, with a dynamic  whose values (name, colors, icon) are pulled from the  table in the database.
+
+**User's preferred language**: The user communicates in **French**. The next agent MUST respond in French.
+
+**what currently exists?**
+The project was started from scratch, abandoning a previous FastAPI/React codebase. The new Next.js 14 application has been scaffolded with the correct folder structure.
+- **Phase 1 (Infrastructure):** Completed. The Next.js project is set up with TypeScript, TailwindCSS, and Shadcn/UI.
+- **Phase 2 (Database):** Completed. A detailed Prisma schema is defined, and a seed script () has been created to populate a temporary SQLite database with a  user and default settings.
+- **Phase 3 (Authentication):** Mostly Completed & Validated. NextAuth.js is configured with the Prisma Adapter and a Credentials provider. Login/Register pages and protective middleware are in place. A critical build error related to missing dependencies () was identified by the user and subsequently fixed.
+- **Phase 4 (Admin Dashboard):** Started but currently blocked. The agent has created the file structure, Server Actions, and UI components for the admin dashboard, but the entire  section is inaccessible.
+
+**Last working item**:
+- **Last item agent was working:** Debugging why the  section is inaccessible, resulting in a 404 error or a redirect to the login page, even when the user is logged in as .
+- **Reasoning:** The agent correctly identified that requests to  were resulting in a 404 because a root page () was missing for that route group. The agent created this page to redirect to . However, the user reports the problem persists, indicating a deeper issue with session validation or propagation in the admin layout (). The agent's -based testing is insufficient to debug authenticated states.
+- **Status**: BLOCKED
+- **Agent Testing Done**: N
+- **Which testing method agent to use?** Manual testing by asking the user for verification after applying fixes. The agent cannot test authenticated routes effectively with . Before asking the user, the agent should add extensive logging to the NextAuth callbacks and the admin layout to trace the session data.
+- **User Testing Done**: Y (User has confirmed the admin section remains inaccessible after the latest fixes).
+
+**All Pending/In progress Issue list**:
+-   **Issue 1: Admin section is inaccessible (P0)**
+    -   The entire  route group is inaccessible. The user is redirected or sees a 404/blank page, even when logged in as . This is the top-priority blocking issue.
+    -   **Attempted fixes**:
+        1.  Created a proper  to wrap admin pages.
+        2.  Used  for server-side protection.
+        3.  Created  to handle the root  path and redirect to .
+        These fixes resolved sub-problems (like the 404 on ) but did not solve the core access issue.
+    -   **Next debug checklist**:
+        1.  **Verify Environment:** Check that  and  are present and correctly set in the  file. The logs show a warning about the missing secret, which is critical.
+        2.  **Trace Session Creation:** Add  statements inside the  and  callbacks in . Confirm that the  from the database is being correctly assigned to the token and the session object upon login.
+        3.  **Trace Session Retrieval:** Add a  for the  object at the very beginning of the  in  to see what  is returning. If it's  or the role is incorrect, the issue lies in the NextAuth configuration or session propagation.
+    -   **Why fix this issue?** The admin dashboard is a core requirement for Phase 4 and is necessary to manage the application. All further development on the admin side is blocked until this is resolved.
+    -   **Status**: IN PROGRESS
+    -   **Is recurring issue?** Y
+    -   **Should Test frontend/backend/both after fix?** Both. Backend for auth logic, frontend for UI rendering. Final verification must come from the user.
+    -   **Blocked on other issue**: None
+
+**In progress Task List**:
+-   **Task 1: Complete Phase 4: Admin Dashboard**
+    -   This task involves building the UI and connecting the frontend components to the already-created Server Actions for managing the theme, translations, sessions, and users.
+    -   **Where to resume**: Resume after resolving Issue 1: Admin section is inaccessible. Once access is restored, continue building out the functionality of the pages under .
+    -   **What will be achieved with this?** A fully functional, database-driven dashboard for the .
+    -   **Status**: BLOCKED
+    -   **Blocked on something**: Issue 1: Admin section is inaccessible
+
+**Upcoming and Future Tasks**
+- **Upcoming Tasks:**
+  - **P1 - Phase 5: Sessions Live:** Implement the live session room at  using Pusher for real-time chat and media synchronization.
+  - **P2 - Phase 6: Audio/Video & Synchronization:** Build the Web Audio API components in  for the audio mixer and synchronized media player.
+  - **P3 - Phase 7: PWA:** Create the dynamic manifest route () and service worker to enable PWA installation and offline capabilities.
+- **Future Tasks:**
+  - Payment gateway integration (the  table is already in the Prisma schema).
+
+**Completed work in this session**
+- **Codebase Refactor:** Successfully transitioned the project from a FastAPI/React/MongoDB stack to a modern Next.js 14/Prisma/PostgreSQL stack from the ground up.
+- **Phase 1: Infrastructure & Setup (DONE)**: Initialized the Next.js project, configured the styling engine (TailwindCSS, Shadcn/UI), and established the core directory structure.
+- **Phase 2: Database & Seeding (DONE)**: Defined the complete database schema in  and created a seed script () to populate initial data, which was tested successfully with SQLite.
+- **Phase 3: Authentication (DONE & VALIDATED)**: Implemented a full authentication system with NextAuth.js, including login/register pages, an Edge-compatible middleware for route protection, and a ghost admin access feature. Fixed a critical build failure related to missing dependencies.
+
+**Code Architecture**
+
+
+**Key Technical Concepts**
+- **Framework:** Next.js 14 (App Router)
+- **Backend:** Server Actions, API Route Handlers
+- **Database:** Prisma ORM with a temporary SQLite setup (target is PostgreSQL)
+- **Authentication:** NextAuth.js with Prisma Adapter and Credentials Provider
+- **UI:** React, Tailwind CSS with CSS Variables for dynamic theming, Shadcn/ui
+- **State Management:** React state and hooks, supplemented by Server Actions for mutations.
+
+**key DB schema**
+-   : 
+-   : 
+-   : Many-to-many join table between  and .
+-   : Key-value store for dynamic theme properties.
+-   : Key-value store for database-driven i18n.
+
+**changes in tech stack**
+-   The entire project is a refactor from an initial **FastAPI + React + MongoDB** codebase to a new **Next.js + Prisma + PostgreSQL** application.
+
+**All files of reference**
+-   : Contains the server-side authentication logic for the admin section. This is a primary file for debugging the current issue.
+-   : The core configuration for NextAuth.js. The callbacks here determine what data is included in the session token.
+-   : Implements Edge-based route protection, which relies on the JWT token generated by NextAuth.
+-   : Contains the  and is missing the critical  and  variables.
+
+**Critical Info for New Agent**
+-   **The user is technically proficient and expects production-grade code.** Follow their directives precisely.
+-   **The current BLOCKING issue is the inaccessible admin dashboard.** Your immediate priority is to fix this. The user has confirmed the bug exists on their end, so it is not just a local testing problem.
+-   **The database is temporarily SQLite.** The Prisma schema was modified to be compatible (e.g., removing ). Do not try to force PostgreSQL features until the user provides the final connection string.
+-   **Respond in French.**
+
+**documents and test reports created in this job**
+-   
+-   
+-   ,  (Contain phase summaries)
+
+**Last 10 User Messages and any pending HUMAN messages**
+10. **User:** Reports that the admin page is still inaccessible (404/blank) even after the agent's latest fix and states this is a blocker.
+9. **Agent:** Identifies the 404 on  is due to a missing  and creates it to redirect to the dashboard. Believes the next step is a login issue.
+8. **User:** Provides deterministic debugging instructions: completely disable all security in the admin layout to isolate the rendering from the auth logic.
+7. **Agent:** Adds more debug logs to the admin layout to trace the session object.
+6. **User:** Reports the admin page is still inaccessible even when logged in as SUPER_ADMIN, and asks the agent to debug by logging the session details in the layout.
+5. **Agent:** Provides a summary concluding the fix for the admin layout issue is complete.
+4. **User:** Reports the admin UI is a blank page and identifies the likely cause is the layout not rendering its children.
+3. **Agent:** Provides a final summary for Phase 4.
+2. **User:** Instructs the agent not to mention token budget and to finalize all remaining admin pages for a complete Phase 4 delivery.
+1. **Agent:** Asks the user whether to continue building out all admin pages or validate the initial structure of Phase 4 first.
+
+**Project Health Check:**
+-   **Broken:** The entire  section is non-functional due to a persistent authentication/session bug. This blocks the completion of Phase 4.
+-   **Mocked:**
+    -   The database is using a temporary SQLite file ().
+    -   Pusher integration uses placeholder credentials.
+
+**3rd Party Integrations**
+-   **Prisma:** ORM for database access.
+-   **NextAuth.js:** Handles user authentication and session management.
+-   **Pusher:** Planned for real-time features (using placeholders).
+-   **Shadcn/UI & Radix UI:** For UI components.
+-   **bcrypt:** For password hashing.
+-   **react-hook-form & zod:** For form management and validation.
+
+**Testing status**
+-   Testing agent used: NO
+-   Troubleshoot agent used: NO
+-   Test files created: None
+-   Known regressions: The admin dashboard is completely inaccessible.
+
+**What agent forgot to execute**
+- The agent has not added the  environment variable to the  file, which is critical for NextAuth.js sessions to work reliably in production-like environments. The logs explicitly warn about this.
+- The agent has not verified that the NextAuth  and  callbacks are correctly configured to pass the  from the database user record into the session token. This is a likely cause of the  check failing.</analysis>
