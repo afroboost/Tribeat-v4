@@ -65,6 +65,7 @@ export function LiveSessionClient({
   const {
     isConnected,
     connectionError,
+    latency,
     sessionState,
     audioState,
     participants: liveParticipants,
@@ -77,6 +78,7 @@ export function LiveSessionClient({
   } = useLiveSession({
     sessionId,
     userId: currentUserId,
+    userName: coach.id === currentUserId ? coach.name : 'Participant',
     userRole: userRole as 'COACH' | 'PARTICIPANT',
     mediaUrl,
     onError: (error) => toast.error(error),
