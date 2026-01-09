@@ -16,7 +16,6 @@ interface LiveStatusProps {
   participantCount: number;
   isConnected: boolean;
   connectionError?: string | null;
-  latency?: number;
 }
 
 export function LiveStatus({ 
@@ -24,7 +23,6 @@ export function LiveStatus({
   participantCount, 
   isConnected,
   connectionError,
-  latency = 0
 }: LiveStatusProps) {
   
   const statusConfig = {
@@ -78,20 +76,12 @@ export function LiveStatus({
         <span className="text-sm font-medium">{participantCount}</span>
       </div>
       
-      {/* Connexion */}
+      {/* Connexion Pusher */}
       <div className="flex items-center gap-1.5">
         {isConnected ? (
           <>
             <Wifi className="w-4 h-4 text-green-500" />
-            <span className="text-xs text-green-500">Connecté</span>
-            {latency > 0 && (
-              <span className={`text-xs ml-1 ${
-                latency < 100 ? 'text-green-400' : 
-                latency < 300 ? 'text-yellow-400' : 'text-red-400'
-              }`}>
-                ({latency}ms)
-              </span>
-            )}
+            <span className="text-xs text-green-500">Pusher</span>
           </>
         ) : (
           <>
