@@ -26,8 +26,11 @@ const PUSHER_CONFIG = {
 let _pusherServer: Pusher | null = null;
 
 export function getPusherServer(): Pusher | null {
-  if (!PUSHER_CONFIG.appId || !PUSHER_CONFIG.key || !PUSHER_CONFIG.secret) {
-    console.warn('[Pusher Server] Configuration incomplète - Mode développement');
+  // Check for missing or placeholder values
+  const isPlaceholder = (val: string) => !val || val.includes('placeholder');
+  
+  if (isPlaceholder(PUSHER_CONFIG.appId) || isPlaceholder(PUSHER_CONFIG.key) || isPlaceholder(PUSHER_CONFIG.secret)) {
+    console.warn('[Pusher Server] Configuration incomplète ou placeholder - Mode développement');
     return null;
   }
   
