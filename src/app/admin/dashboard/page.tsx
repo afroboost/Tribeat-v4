@@ -1,43 +1,21 @@
 /**
- * Dashboard Admin - FALLBACK ANTI PAGE BLANCHE
+ * Dashboard Admin
  */
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { prisma } from '@/lib/prisma';
 
-// FORCE DYNAMIC
-export const dynamic = 'force-dynamic';
-
 export default async function AdminDashboardPage() {
-  let userCount = 0, sessionCount = 0, settingsCount = 0, translationsCount = 0;
-  let dbError = false;
-  
-  try {
-    [userCount, sessionCount, settingsCount, translationsCount] = await Promise.all([
-      prisma.user.count(),
-      prisma.session.count(),
-      prisma.uI_Settings.count(),
-      prisma.translation.count(),
-    ]);
-  } catch (e) {
-    console.error('DB Error:', e);
-    dbError = true;
-  }
+  // Récupérer les stats
+  const [userCount, sessionCount, settingsCount, translationsCount] = await Promise.all([
+    prisma.user.count().catch(() => 0),
+    prisma.session.count().catch(() => 0),
+    prisma.uI_Settings.count().catch(() => 0),
+    prisma.translation.count().catch(() => 0),
+  ]);
 
   return (
     <div className="space-y-6">
-      {/* FALLBACK VISIBLE - TOUJOURS AFFICHÉ */}
-      <div className="p-4 bg-green-100 border border-green-300 rounded-lg">
-        <h1 className="text-xl font-bold text-green-800">✅ Admin Dashboard — Page chargée</h1>
-        <p className="text-green-700">Si tu vois ce texte, le rendu fonctionne correctement.</p>
-      </div>
-
-      {dbError && (
-        <div className="p-4 bg-yellow-100 border border-yellow-300 rounded-lg">
-          <p className="text-yellow-800">⚠️ Erreur de connexion à la base de données. Les stats peuvent être incorrectes.</p>
-        </div>
-      )}
-      
       <Card>
         <CardHeader>
           <CardTitle>Vue d'Ensemble</CardTitle>
@@ -54,24 +32,28 @@ export default async function AdminDashboardPage() {
           <CardHeader><CardTitle className="text-lg">👥 Utilisateurs</CardTitle></CardHeader>
           <CardContent>
             <p className="text-3xl font-bold text-blue-600">{userCount}</p>
+            <p className="text-sm text-gray-500">Total</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle className="text-lg">🎥 Sessions</CardTitle></CardHeader>
           <CardContent>
             <p className="text-3xl font-bold text-green-600">{sessionCount}</p>
+            <p className="text-sm text-gray-500">Créées</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle className="text-lg">⚙️ Paramètres</CardTitle></CardHeader>
           <CardContent>
             <p className="text-3xl font-bold text-purple-600">{settingsCount}</p>
+            <p className="text-sm text-gray-500">UI Settings</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle className="text-lg">🌍 Traductions</CardTitle></CardHeader>
           <CardContent>
             <p className="text-3xl font-bold text-orange-600">{translationsCount}</p>
+            <p className="text-sm text-gray-500">Clés</p>
           </CardContent>
         </Card>
       </div>
