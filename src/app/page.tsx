@@ -11,7 +11,7 @@ export default function HomePage() {
               Tribeat
             </h1>
             <p className="text-xl md:text-2xl text-gray-600 dark:text-gray-300">
-              Sessions live interactives
+              Sessions live interactives - V2 CACHE TEST
             </p>
             <p className="text-lg text-gray-500 dark:text-gray-400 max-w-xl mx-auto">
               Rejoignez des expériences collectives synchronisées en temps réel.
