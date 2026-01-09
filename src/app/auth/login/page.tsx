@@ -1,13 +1,11 @@
 'use client';
 
 /**
- * Page de Connexion
- * 
- * Utilise une Server Action personnalisée pour contourner
- * le problème de proxy /api/* sur la plateforme Emergent
+ * Page de Connexion - NextAuth
  */
 
 import { Suspense, useState } from 'react';
+import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -19,9 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2 } from 'lucide-react';
-import { loginAction } from '@/actions/auth';
 
-// Schéma de validation Zod
 const loginSchema = z.object({
   email: z.string().email('Email invalide'),
   password: z.string().min(6, 'Mot de passe trop court (min. 6 caractères)'),
@@ -35,51 +31,38 @@ function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Callback URL pour redirection après login
   const callbackUrl = searchParams.get('callbackUrl') || '/';
 
-  // Form avec react-hook-form + Zod
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
-    defaultValues: {
-      email: '',
-      password: '',
-    },
+    defaultValues: { email: '', password: '' },
   });
 
-  // Submit handler utilisant Server Action
   async function onSubmit(values: LoginFormValues) {
     setIsLoading(true);
     setError(null);
 
     try {
-      // Utiliser notre Server Action personnalisée
-      const result = await loginAction(values.email, values.password);
+      const result = await signIn('credentials', {
+        email: values.email,
+        password: values.password,
+        redirect: false,
+      });
 
-      if (!result.success) {
-        setError(result.error || 'Erreur de connexion');
-        toast.error(result.error || 'Échec de la connexion');
+      if (result?.error) {
+        setError('Email ou mot de passe incorrect');
+        toast.error('Échec de la connexion');
         return;
       }
 
-      // Succès : rediriger selon le rôle
-      toast.success('Connexion réussie !');
-      
-      // Redirection intelligente selon rôle
-      let redirectUrl = callbackUrl;
-      if (result.user?.role === 'SUPER_ADMIN') {
-        redirectUrl = '/admin/dashboard';
-      } else if (result.user?.role === 'COACH') {
-        redirectUrl = '/coach/dashboard';
-      } else {
-        redirectUrl = '/sessions';
+      if (result?.ok) {
+        toast.success('Connexion réussie !');
+        router.push(callbackUrl);
+        router.refresh();
       }
-      
-      router.push(redirectUrl);
-      router.refresh();
-    } catch (error) {
-      console.error('Login error:', error);
-      setError('Une erreur est survenue. Veuillez réessayer.');
+    } catch (err) {
+      console.error('Login error:', err);
+      setError('Une erreur est survenue');
       toast.error('Erreur de connexion');
     } finally {
       setIsLoading(false);
@@ -88,25 +71,20 @@ function LoginForm() {
 
   return (
     <div className="w-full max-w-md">
-      {/* Card */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-8 space-y-6">
-        {/* Header */}
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">🎵 Tribeat</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Tribeat</h1>
           <p className="text-gray-600 dark:text-gray-400">Connexion à votre compte</p>
         </div>
 
-        {/* Erreur globale */}
         {error && (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
 
-        {/* Formulaire */}
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            {/* Email */}
             <FormField
               control={form.control}
               name="email"
@@ -127,7 +105,6 @@ function LoginForm() {
               )}
             />
 
-            {/* Password */}
             <FormField
               control={form.control}
               name="password"
@@ -148,7 +125,6 @@ function LoginForm() {
               )}
             />
 
-            {/* Submit Button */}
             <Button
               type="submit"
               className="w-full"
@@ -158,7 +134,7 @@ function LoginForm() {
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Connexion en cours...
+                  Connexion...
                 </>
               ) : (
                 'Se connecter'
@@ -167,9 +143,7 @@ function LoginForm() {
           </form>
         </Form>
 
-        {/* Footer */}
         <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-          {/* Lien inscription */}
           <p className="text-center text-sm text-gray-600 dark:text-gray-400">
             Pas encore de compte ?{' '}
             <Link href="/auth/register" className="text-blue-600 hover:underline font-medium">
@@ -177,7 +151,6 @@ function LoginForm() {
             </Link>
           </p>
 
-          {/* Comptes de démo */}
           <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 text-xs text-gray-600 dark:text-gray-400">
             <p className="font-semibold mb-2">Comptes de démonstration :</p>
             <ul className="space-y-1">
@@ -189,7 +162,6 @@ function LoginForm() {
         </div>
       </div>
 
-      {/* Retour accueil */}
       <div className="text-center mt-6">
         <Link href="/" className="text-sm text-gray-600 dark:text-gray-400 hover:underline">
           ← Retour à l'accueil
@@ -202,11 +174,7 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 px-4">
-      <Suspense fallback={
-        <div className="flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-        </div>
-      }>
+      <Suspense fallback={<Loader2 className="h-8 w-8 animate-spin text-blue-600" />}>
         <LoginForm />
       </Suspense>
     </div>
