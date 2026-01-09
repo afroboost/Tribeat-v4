@@ -30,7 +30,7 @@ export default async function SessionPage({ params }: SessionPageProps) {
       coach: { select: { id: true, name: true, avatar: true } },
       participants: {
         include: {
-          participant: { select: { id: true, name: true, avatar: true } }
+          user: { select: { id: true, name: true, avatar: true } }
         }
       },
       media: true
