@@ -1,8 +1,12 @@
 /**
- * Configuration Pusher - Temps Réel Tribeat
+ * Pusher Configuration - Production Ready
  * 
  * SERVER: pusherServer pour émettre des événements
  * CLIENT: getPusherClient() singleton pour recevoir
+ * 
+ * SÉCURITÉ:
+ * - Auth obligatoire sur channels presence
+ * - Vérification rôle COACH pour émission
  */
 
 import Pusher from 'pusher';
@@ -12,7 +16,7 @@ import PusherClient from 'pusher-js';
 // CONFIGURATION
 // ========================================
 
-const PUSHER_CONFIG = {
+const config = {
   appId: process.env.PUSHER_APP_ID || '',
   key: process.env.NEXT_PUBLIC_PUSHER_KEY || '',
   secret: process.env.PUSHER_SECRET || '',
@@ -20,26 +24,24 @@ const PUSHER_CONFIG = {
 };
 
 // ========================================
-// SERVER-SIDE PUSHER (API Routes / Server Actions)
+// SERVER-SIDE PUSHER
 // ========================================
 
 let _pusherServer: Pusher | null = null;
 
-export function getPusherServer(): Pusher | null {
-  // Check for missing or placeholder values
-  const isPlaceholder = (val: string) => !val || val.includes('placeholder');
-  
-  if (isPlaceholder(PUSHER_CONFIG.appId) || isPlaceholder(PUSHER_CONFIG.key) || isPlaceholder(PUSHER_CONFIG.secret)) {
-    console.warn('[Pusher Server] Configuration incomplète ou placeholder - Mode développement');
-    return null;
+export function getPusherServer(): Pusher {
+  if (!config.appId || !config.key || !config.secret) {
+    throw new Error(
+      'Pusher non configuré. Définissez PUSHER_APP_ID, NEXT_PUBLIC_PUSHER_KEY, PUSHER_SECRET'
+    );
   }
   
   if (!_pusherServer) {
     _pusherServer = new Pusher({
-      appId: PUSHER_CONFIG.appId,
-      key: PUSHER_CONFIG.key,
-      secret: PUSHER_CONFIG.secret,
-      cluster: PUSHER_CONFIG.cluster,
+      appId: config.appId,
+      key: config.key,
+      secret: config.secret,
+      cluster: config.cluster,
       useTLS: true,
     });
   }
@@ -47,52 +49,64 @@ export function getPusherServer(): Pusher | null {
   return _pusherServer;
 }
 
-// Export direct pour compatibilité
-export const pusherServer = getPusherServer();
-
 // ========================================
-// CLIENT-SIDE PUSHER (Components)
+// CLIENT-SIDE PUSHER
 // ========================================
 
 let _pusherClient: PusherClient | null = null;
 
-export function getPusherClient(): PusherClient | null {
-  if (typeof window === 'undefined') return null;
+export function getPusherClient(): PusherClient {
+  if (typeof window === 'undefined') {
+    throw new Error('getPusherClient ne peut être appelé que côté client');
+  }
   
-  if (!PUSHER_CONFIG.key) {
-    console.warn('[Pusher Client] Clé non configurée - Mode développement');
-    return null;
+  if (!config.key) {
+    throw new Error('Pusher non configuré. Définissez NEXT_PUBLIC_PUSHER_KEY');
   }
   
   if (!_pusherClient) {
-    _pusherClient = new PusherClient(PUSHER_CONFIG.key, {
-      cluster: PUSHER_CONFIG.cluster,
+    _pusherClient = new PusherClient(config.key, {
+      cluster: config.cluster,
       authEndpoint: '/api/pusher/auth',
       forceTLS: true,
     });
     
-    // Debug en développement
-    if (process.env.NODE_ENV === 'development') {
-      _pusherClient.connection.bind('connected', () => {
-        console.log('[Pusher] Connecté');
-      });
-      _pusherClient.connection.bind('error', (err: any) => {
-        console.error('[Pusher] Erreur:', err);
-      });
-    }
+    // Debug logging
+    _pusherClient.connection.bind('connected', () => {
+      console.log('[Pusher] Connecté - Socket ID:', _pusherClient?.connection.socket_id);
+    });
+    
+    _pusherClient.connection.bind('error', (err: Error) => {
+      console.error('[Pusher] Erreur connexion:', err);
+    });
+    
+    _pusherClient.connection.bind('disconnected', () => {
+      console.log('[Pusher] Déconnecté');
+    });
   }
   
   return _pusherClient;
 }
 
 // ========================================
-// VÉRIFICATION CONFIGURATION
+// HELPERS
 // ========================================
 
 export function isPusherConfigured(): boolean {
-  return !!(PUSHER_CONFIG.appId && PUSHER_CONFIG.key && PUSHER_CONFIG.secret);
+  return !!(config.appId && config.key && config.secret);
 }
 
-export function isPusherClientConfigured(): boolean {
-  return !!PUSHER_CONFIG.key;
+export function getChannelName(sessionId: string): string {
+  return `presence-session-${sessionId}`;
 }
+
+export const LIVE_EVENTS = {
+  STATE_UPDATE: 'state:update',
+  PLAY: 'playback:play',
+  PAUSE: 'playback:pause',
+  SEEK: 'playback:seek',
+  VOLUME: 'playback:volume',
+  END: 'session:end',
+  PARTICIPANT_JOINED: 'participant:joined',
+  PARTICIPANT_LEFT: 'participant:left',
+} as const;
