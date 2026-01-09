@@ -1,141 +1,79 @@
-/**
- * Theme Provider - Injection Dynamique UI_Settings
- * 
- * Architecture Production :
- * - Lit UI_Settings depuis DB
- * - Injecte CSS Variables dans <html>
- * - Hook useTheme() pour accès contexte
- * - Zéro hardcoding : tout vient de la DB
- * 
- * IMPORTANT :
- * Ce provider permet au Super Admin de modifier le thème
- * en temps réel sans redéploiement
- */
-
 'use client';
 
-import { createContext, useContext, ReactNode, useEffect, useState } from 'react';
+/**
+ * ThemeProvider - Client Component
+ * Charge le thème depuis l'API, fallback sur défaut si erreur
+ */
 
-// ========================================
-// TYPES
-// ========================================
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 
 interface ThemeSettings {
-  // Theme colors
-  primary_color: string;
-  secondary_color: string;
-  background_color: string;
-  foreground_color: string;
-  border_radius: string;
-  font_family: string;
-  
-  // PWA
-  pwa_app_name: string;
-  pwa_theme_color: string;
-  
-  // General
-  site_title: string;
-  default_language: string;
+  primaryColor: string;
+  secondaryColor: string;
+  backgroundColor: string;
+  foregroundColor: string;
+  borderRadius: string;
 }
 
-interface ThemeContextValue {
-  settings: ThemeSettings | null;
-  isLoading: boolean;
-  refresh: () => Promise<void>;
+const defaultTheme: ThemeSettings = {
+  primaryColor: '#3b82f6',
+  secondaryColor: '#8b5cf6',
+  backgroundColor: '#ffffff',
+  foregroundColor: '#0f0f10',
+  borderRadius: '8',
+};
+
+const ThemeContext = createContext<ThemeSettings>(defaultTheme);
+
+export function useTheme() {
+  return useContext(ThemeContext);
 }
 
-// ========================================
-// CONTEXT
-// ========================================
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const [theme, setTheme] = useState<ThemeSettings>(defaultTheme);
+  const [mounted, setMounted] = useState(false);
 
-const ThemeContext = createContext<ThemeContextValue>({
-  settings: null,
-  isLoading: true,
-  refresh: async () => {},
-});
-
-// ========================================
-// PROVIDER
-// ========================================
-
-interface ThemeProviderProps {
-  children: ReactNode;
-  initialSettings?: ThemeSettings;
-}
-
-export function ThemeProvider({ children, initialSettings }: ThemeProviderProps) {
-  const [settings, setSettings] = useState<ThemeSettings | null>(initialSettings || null);
-  const [isLoading, setIsLoading] = useState(!initialSettings);
-
-  // Fonction pour récupérer les settings depuis l'API
-  const fetchSettings = async () => {
-    try {
-      setIsLoading(true);
-      const response = await fetch('/api/theme/settings');
-      if (response.ok) {
-        const data = await response.json();
-        setSettings(data);
-        applyThemeToDOM(data);
-      }
-    } catch (error) {
-      console.error('Error fetching theme settings:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Appliquer le thème au DOM (CSS Variables)
-  const applyThemeToDOM = (themeSettings: ThemeSettings) => {
-    if (!themeSettings) return;
-
-    const root = document.documentElement;
-
-    // Convertir hex en HSL pour CSS Variables (compatibilité Tailwind)
-    const hexToHSL = (hex: string) => {
-      // Conversion simplifiée (production: utiliser une lib)
-      return hex; // Pour l'instant, on garde hex
-    };
-
-    // Appliquer les CSS Variables
-    root.style.setProperty('--primary', hexToHSL(themeSettings.primary_color));
-    root.style.setProperty('--secondary', hexToHSL(themeSettings.secondary_color));
-    root.style.setProperty('--background', hexToHSL(themeSettings.background_color));
-    root.style.setProperty('--foreground', hexToHSL(themeSettings.foreground_color));
-    root.style.setProperty('--radius', themeSettings.border_radius + 'px');
-    
-    // Font family
-    if (themeSettings.font_family) {
-      root.style.setProperty('font-family', themeSettings.font_family);
-    }
-  };
-
-  // Charger les settings au montage
   useEffect(() => {
-    if (!initialSettings) {
-      fetchSettings();
-    } else {
-      applyThemeToDOM(initialSettings);
-    }
+    setMounted(true);
+    
+    // Charger le thème depuis l'API
+    fetch('/api/theme/settings')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) {
+          setTheme({
+            primaryColor: data.primary_color || defaultTheme.primaryColor,
+            secondaryColor: data.secondary_color || defaultTheme.secondaryColor,
+            backgroundColor: data.background_color || defaultTheme.backgroundColor,
+            foregroundColor: data.foreground_color || defaultTheme.foregroundColor,
+            borderRadius: data.border_radius || defaultTheme.borderRadius,
+          });
+        }
+      })
+      .catch(() => {
+        // Erreur API → utiliser thème par défaut
+        console.log('Theme API unavailable, using defaults');
+      });
   }, []);
 
+  // Appliquer les CSS variables
+  useEffect(() => {
+    if (mounted) {
+      document.documentElement.style.setProperty('--theme-primary', theme.primaryColor);
+      document.documentElement.style.setProperty('--theme-secondary', theme.secondaryColor);
+      document.documentElement.style.setProperty('--theme-background', theme.backgroundColor);
+      document.documentElement.style.setProperty('--theme-foreground', theme.foregroundColor);
+      document.documentElement.style.setProperty('--theme-radius', `${theme.borderRadius}px`);
+      
+      // Appliquer au body
+      document.body.style.backgroundColor = theme.backgroundColor;
+      document.body.style.color = theme.foregroundColor;
+    }
+  }, [theme, mounted]);
+
   return (
-    <ThemeContext.Provider value={{ settings, isLoading, refresh: fetchSettings }}>
+    <ThemeContext.Provider value={theme}>
       {children}
     </ThemeContext.Provider>
   );
-}
-
-// ========================================
-// HOOK
-// ========================================
-
-/**
- * Hook pour accéder au thème dans les composants
- */
-export function useTheme() {
-  const context = useContext(ThemeContext);
-  if (!context) {
-    throw new Error('useTheme must be used within ThemeProvider');
-  }
-  return context;
 }

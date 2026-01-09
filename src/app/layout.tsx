@@ -3,10 +3,7 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import { Toaster } from 'sonner';
 import { AuthProvider } from '@/components/providers/AuthProvider';
-
-// FORCE DYNAMIC - NO CACHE
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
+import { ThemeProvider } from '@/components/providers/ThemeProvider';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -20,24 +17,14 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // Layout 100% statique - ZÉRO DB, ZÉRO auth
   return (
     <html lang="fr" suppressHydrationWarning>
-      <body 
-        className={inter.className} 
-        style={{ 
-          backgroundColor: '#f8fafc', 
-          color: '#1e293b',
-          minHeight: '100vh'
-        }}
-      >
-        {/* DEBUG MODE - TEMPORAIRE */}
-        <div style={{ padding: 20, background: "#ffeded", color: "#000", borderBottom: "3px solid #ff0000" }}>
-          <strong>TRIBEAT DEBUG MODE</strong><br />
-          Layout global rendu correctement
-        </div>
-        
+      <body className={inter.className}>
         <AuthProvider>
-          {children}
+          <ThemeProvider>
+            {children}
+          </ThemeProvider>
           <Toaster position="top-center" richColors />
         </AuthProvider>
       </body>
