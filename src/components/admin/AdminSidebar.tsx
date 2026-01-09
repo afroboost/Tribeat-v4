@@ -1,8 +1,5 @@
 /**
  * Admin Sidebar Navigation
- * 
- * Navigation principale du dashboard admin
- * Liens vers toutes les sections
  */
 
 'use client';
@@ -17,16 +14,20 @@ import {
   Video, 
   Users, 
   Download,
-  Home
+  Home,
+  ShieldCheck,
+  CreditCard
 } from 'lucide-react';
 
 const navigation = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
-  { name: 'Éditeur de Thème', href: '/admin/theme', icon: Palette },
+  { name: 'Thème', href: '/admin/theme', icon: Palette },
   { name: 'Traductions', href: '/admin/translations', icon: Languages },
   { name: 'Sessions', href: '/admin/sessions', icon: Video },
+  { name: 'Accès', href: '/admin/access', icon: ShieldCheck },
+  { name: 'Paiements', href: '/admin/payments', icon: CreditCard },
   { name: 'Utilisateurs', href: '/admin/users', icon: Users },
-  { name: 'Export Données', href: '/admin/export', icon: Download },
+  { name: 'Export', href: '/admin/export', icon: Download },
 ];
 
 export function AdminSidebar() {
