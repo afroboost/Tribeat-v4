@@ -270,3 +270,28 @@ model UserAccess {
   @@index([sessionId])
   @@index([status])
 }
+
+// ========================================
+// LIVE SESSION STATE (TEMPS RÉEL PERSISTÉ)
+// ========================================
+
+model LiveSessionState {
+  id          String   @id @default(cuid())
+  sessionId   String   @unique
+  
+  // État de lecture
+  isPlaying   Boolean  @default(false)
+  currentTime Float    @default(0)  // Position en secondes
+  volume      Int      @default(80) // 0-100
+  
+  // Métadonnées
+  lastEventBy String?  // ID du coach qui a émis le dernier event
+  lastEventAt DateTime @default(now())
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([sessionId])
+}
+
