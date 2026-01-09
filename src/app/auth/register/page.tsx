@@ -62,8 +62,8 @@ export default function RegisterPage() {
     setError(null);
 
     try {
-      // Appel API pour créer l'utilisateur
-      const response = await fetch('/api/auth/register', {
+      // Appel API pour créer l'utilisateur (Server Action ou API route)
+      const response = await fetch('/nextauth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -78,7 +78,7 @@ export default function RegisterPage() {
       if (!response.ok) {
         // Erreur (ex: email déjà utilisé)
         setError(data.error || 'Une erreur est survenue');
-        toast.error(data.error || 'Échec de l\'inscription');
+        toast.error(data.error || "Échec de l'inscription");
         return;
       }
 
@@ -99,45 +99,45 @@ export default function RegisterPage() {
     } catch (error) {
       console.error('Register error:', error);
       setError('Une erreur est survenue. Veuillez réessayer.');
-      toast.error('Erreur d\'inscription');
+      toast.error("Erreur d'inscription");
     } finally {
       setIsLoading(false);
     }
   }
 
   return (
-    <div className=\"min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 px-4\">
-      <div className=\"w-full max-w-md\">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 px-4">
+      <div className="w-full max-w-md">
         {/* Card */}
-        <div className=\"bg-white dark:bg-gray-800 rounded-lg shadow-xl p-8 space-y-6\">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-8 space-y-6">
           {/* Header */}
-          <div className=\"text-center space-y-2\">
-            <h1 className=\"text-3xl font-bold text-gray-900 dark:text-white\">🎵 Tribeat</h1>
-            <p className=\"text-gray-600 dark:text-gray-400\">Créer un compte</p>
+          <div className="text-center space-y-2">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">🎵 Tribeat</h1>
+            <p className="text-gray-600 dark:text-gray-400">Créer un compte</p>
           </div>
 
           {/* Erreur globale */}
           {error && (
-            <Alert variant=\"destructive\">
+            <Alert variant="destructive">
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
 
           {/* Formulaire */}
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className=\"space-y-4\">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               {/* Nom */}
               <FormField
                 control={form.control}
-                name=\"name\"
+                name="name"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Nom complet</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder=\"John Doe\"
+                        placeholder="John Doe"
                         disabled={isLoading}
-                        data-testid=\"register-name-input\"
+                        data-testid="register-name-input"
                         {...field}
                       />
                     </FormControl>
@@ -149,16 +149,16 @@ export default function RegisterPage() {
               {/* Email */}
               <FormField
                 control={form.control}
-                name=\"email\"
+                name="email"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Email</FormLabel>
                     <FormControl>
                       <Input
-                        type=\"email\"
-                        placeholder=\"vous@exemple.com\"
+                        type="email"
+                        placeholder="vous@exemple.com"
                         disabled={isLoading}
-                        data-testid=\"register-email-input\"
+                        data-testid="register-email-input"
                         {...field}
                       />
                     </FormControl>
@@ -170,16 +170,16 @@ export default function RegisterPage() {
               {/* Password */}
               <FormField
                 control={form.control}
-                name=\"password\"
+                name="password"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Mot de passe</FormLabel>
                     <FormControl>
                       <Input
-                        type=\"password\"
-                        placeholder=\"••••••••\"
+                        type="password"
+                        placeholder="••••••••"
                         disabled={isLoading}
-                        data-testid=\"register-password-input\"
+                        data-testid="register-password-input"
                         {...field}
                       />
                     </FormControl>
@@ -191,16 +191,16 @@ export default function RegisterPage() {
               {/* Confirm Password */}
               <FormField
                 control={form.control}
-                name=\"confirmPassword\"
+                name="confirmPassword"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Confirmer le mot de passe</FormLabel>
                     <FormControl>
                       <Input
-                        type=\"password\"
-                        placeholder=\"••••••••\"
+                        type="password"
+                        placeholder="••••••••"
                         disabled={isLoading}
-                        data-testid=\"register-confirm-password-input\"
+                        data-testid="register-confirm-password-input"
                         {...field}
                       />
                     </FormControl>
@@ -211,28 +211,28 @@ export default function RegisterPage() {
 
               {/* Submit Button */}
               <Button
-                type=\"submit\"
-                className=\"w-full\"
+                type="submit"
+                className="w-full"
                 disabled={isLoading}
-                data-testid=\"register-submit-button\"
+                data-testid="register-submit-button"
               >
                 {isLoading ? (
                   <>
-                    <Loader2 className=\"mr-2 h-4 w-4 animate-spin\" />
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Création du compte...
                   </>
                 ) : (
-                  'S\\'inscrire'
+                  "S'inscrire"
                 )}
               </Button>
             </form>
           </Form>
 
           {/* Footer */}
-          <div className=\"pt-4 border-t border-gray-200 dark:border-gray-700\">
-            <p className=\"text-center text-sm text-gray-600 dark:text-gray-400\">
+          <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+            <p className="text-center text-sm text-gray-600 dark:text-gray-400">
               Vous avez déjà un compte ?{' '}
-              <Link href=\"/auth/login\" className=\"text-blue-600 hover:underline font-medium\">
+              <Link href="/auth/login" className="text-blue-600 hover:underline font-medium">
                 Se connecter
               </Link>
             </p>
@@ -240,8 +240,8 @@ export default function RegisterPage() {
         </div>
 
         {/* Retour accueil */}
-        <div className=\"text-center mt-6\">
-          <Link href=\"/\" className=\"text-sm text-gray-600 dark:text-gray-400 hover:underline\">
+        <div className="text-center mt-6">
+          <Link href="/" className="text-sm text-gray-600 dark:text-gray-400 hover:underline">
             ← Retour à l'accueil
           </Link>
         </div>
