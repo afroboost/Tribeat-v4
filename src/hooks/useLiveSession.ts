@@ -1,27 +1,32 @@
 /**
- * Hook: useLiveSession (WebSocket Natif)
+ * Hook: useLiveSession (Pusher Production)
  * 
- * Gère la connexion temps réel à une session live
- * Utilise le serveur WebSocket natif (port 3001)
- * ZÉRO simulation - Temps réel RÉEL
+ * Gère la connexion temps réel à une session live via Pusher
+ * - État persisté en DB (survit aux redémarrages)
+ * - Auth sécurisée
+ * - Reconnexion automatique
  */
 
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  getRealtimeClient, 
-  RealtimeClient, 
-  WS_EVENTS,
-  SessionState 
-} from '@/lib/realtime/websocketClient';
+import { getPusherClient, getChannelName, LIVE_EVENTS } from '@/lib/realtime/pusher';
 import { getAudioEngine, AudioEngineState } from '@/lib/realtime/audioEngine';
+import type { PresenceChannel, Members } from 'pusher-js';
 
 // ========================================
 // TYPES
 // ========================================
 
-export interface LiveSessionUser {
+export interface LiveState {
+  sessionId: string;
+  isPlaying: boolean;
+  currentTime: number;
+  volume: number;
+  lastEventAt?: Date;
+}
+
+export interface LiveParticipant {
   id: string;
   name: string;
   role: string;
@@ -37,25 +42,27 @@ export interface UseLiveSessionOptions {
 }
 
 export interface UseLiveSessionReturn {
-  // État connexion
+  // Connexion
   isConnected: boolean;
   connectionError: string | null;
-  latency: number;
   
-  // État session
-  sessionState: SessionState | null;
+  // État
+  liveState: LiveState | null;
   audioState: AudioEngineState | null;
   
   // Participants
-  participants: LiveSessionUser[];
+  participants: LiveParticipant[];
   participantCount: number;
   
-  // Actions Coach
-  play: () => void;
-  pause: () => void;
-  seek: (time: number) => void;
-  setVolume: (volume: number) => void;
-  endSession: () => void;
+  // Actions (Coach uniquement)
+  play: () => Promise<void>;
+  pause: () => Promise<void>;
+  seek: (time: number) => Promise<void>;
+  setVolume: (volume: number) => Promise<void>;
+  endSession: () => Promise<void>;
+  
+  // Refresh état depuis DB
+  refreshState: () => Promise<void>;
   
   // Info
   isCoach: boolean;
@@ -69,201 +76,194 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
   const { sessionId, userId, userName, userRole, mediaUrl, onError } = options;
   
   // Refs
-  const clientRef = useRef<RealtimeClient | null>(null);
+  const channelRef = useRef<PresenceChannel | null>(null);
   const audioEngineRef = useRef<ReturnType<typeof getAudioEngine> | null>(null);
-  const unsubscribersRef = useRef<Array<() => void>>([]);
   
-  // État
+  // State
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [latency, setLatency] = useState(0);
-  const [sessionState, setSessionState] = useState<SessionState | null>(null);
+  const [liveState, setLiveState] = useState<LiveState | null>(null);
   const [audioState, setAudioState] = useState<AudioEngineState | null>(null);
-  const [participants, setParticipants] = useState<LiveSessionUser[]>([]);
+  const [participants, setParticipants] = useState<LiveParticipant[]>([]);
   
   const isCoach = userRole === 'COACH' || userRole === 'SUPER_ADMIN';
   
   // ========================================
-  // CONNEXION WEBSOCKET
+  // FETCH INITIAL STATE FROM DB
+  // ========================================
+  
+  const refreshState = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/live/${sessionId}/event`);
+      if (!response.ok) {
+        throw new Error('Impossible de récupérer l\'état');
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.state) {
+        setLiveState(data.state);
+        
+        // Synchroniser l'audio
+        const audioEngine = audioEngineRef.current;
+        if (audioEngine && !isCoach) {
+          audioEngine.setVolume(data.state.volume);
+          audioEngine.seek(data.state.currentTime);
+          if (data.state.isPlaying) {
+            audioEngine.play();
+          }
+        }
+        
+        console.log('[LIVE] État récupéré depuis DB:', data.state);
+      }
+    } catch (error) {
+      console.error('[LIVE] Erreur refresh state:', error);
+    }
+  }, [sessionId, isCoach]);
+  
+  // ========================================
+  // PUSHER CONNECTION
   // ========================================
   
   useEffect(() => {
-    const client = getRealtimeClient();
-    clientRef.current = client;
+    let channel: PresenceChannel;
     
-    // Se connecter
-    client.connect()
-      .then(() => {
-        setIsConnected(true);
-        setConnectionError(null);
+    const connectPusher = async () => {
+      try {
+        const pusher = getPusherClient();
+        const channelName = getChannelName(sessionId);
         
-        // Rejoindre la session
-        client.joinSession(sessionId, userId, userName, userRole);
+        console.log('[LIVE] Connexion à', channelName);
         
-        // Mesurer la latence
-        client.ping();
-      })
-      .catch((err) => {
-        setConnectionError('Impossible de se connecter au serveur temps réel');
-        onError?.('Connexion WebSocket échouée');
-        console.error('[useLiveSession] Connection error:', err);
-      });
-    
-    // S'abonner aux événements
-    const unsubs: Array<() => void> = [];
-    
-    // État initial de la session
-    unsubs.push(client.on(WS_EVENTS.STATE, (data: SessionState) => {
-      console.log('[useLiveSession] Received STATE:', data);
-      setSessionState(data);
-      setParticipants(data.participants.map(p => ({
-        id: p.userId,
-        name: p.userName,
-        role: p.role,
-      })));
-      
-      // Calculer la latence
-      if (data.latencyTest) {
-        const lat = Date.now() - data.latencyTest;
-        setLatency(lat);
-        console.log(`[useLiveSession] Initial latency: ${lat}ms`);
+        channel = pusher.subscribe(channelName) as PresenceChannel;
+        channelRef.current = channel;
+        
+        // Subscription réussie
+        channel.bind('pusher:subscription_succeeded', (members: Members) => {
+          setIsConnected(true);
+          setConnectionError(null);
+          
+          // Récupérer les membres
+          const memberList: LiveParticipant[] = [];
+          members.each((member: { id: string; info: { name: string; role: string } }) => {
+            memberList.push({
+              id: member.id,
+              name: member.info?.name || 'Utilisateur',
+              role: member.info?.role || 'PARTICIPANT',
+            });
+          });
+          setParticipants(memberList);
+          
+          console.log('[LIVE] Connecté -', memberList.length, 'participants');
+          
+          // Récupérer l'état depuis la DB
+          refreshState();
+        });
+        
+        // Erreur de subscription
+        channel.bind('pusher:subscription_error', (error: Error) => {
+          setConnectionError('Impossible de rejoindre la session');
+          console.error('[LIVE] Subscription error:', error);
+        });
+        
+        // Membre rejoint
+        channel.bind('pusher:member_added', (member: { id: string; info: { name: string; role: string } }) => {
+          setParticipants(prev => {
+            if (prev.find(p => p.id === member.id)) return prev;
+            return [...prev, {
+              id: member.id,
+              name: member.info?.name || 'Utilisateur',
+              role: member.info?.role || 'PARTICIPANT',
+            }];
+          });
+          console.log('[LIVE] Participant rejoint:', member.info?.name);
+        });
+        
+        // Membre parti
+        channel.bind('pusher:member_removed', (member: { id: string }) => {
+          setParticipants(prev => prev.filter(p => p.id !== member.id));
+          console.log('[LIVE] Participant parti:', member.id);
+        });
+        
+        // ========================================
+        // ÉVÉNEMENTS LIVE
+        // ========================================
+        
+        channel.bind(LIVE_EVENTS.PLAY, (data: LiveState & { timestamp: number }) => {
+          console.log('[LIVE] PLAY reçu:', data);
+          setLiveState(prev => ({ ...prev, ...data, isPlaying: true }));
+          
+          const audioEngine = audioEngineRef.current;
+          if (audioEngine && !isCoach) {
+            audioEngine.seek(data.currentTime);
+            audioEngine.play();
+          }
+        });
+        
+        channel.bind(LIVE_EVENTS.PAUSE, (data: LiveState & { timestamp: number }) => {
+          console.log('[LIVE] PAUSE reçu:', data);
+          setLiveState(prev => ({ ...prev, ...data, isPlaying: false }));
+          
+          const audioEngine = audioEngineRef.current;
+          if (audioEngine && !isCoach) {
+            audioEngine.pause();
+            audioEngine.seek(data.currentTime);
+          }
+        });
+        
+        channel.bind(LIVE_EVENTS.SEEK, (data: LiveState & { timestamp: number }) => {
+          console.log('[LIVE] SEEK reçu:', data);
+          setLiveState(prev => ({ ...prev, ...data }));
+          
+          const audioEngine = audioEngineRef.current;
+          if (audioEngine && !isCoach) {
+            audioEngine.seek(data.currentTime);
+          }
+        });
+        
+        channel.bind(LIVE_EVENTS.VOLUME, (data: LiveState & { timestamp: number }) => {
+          console.log('[LIVE] VOLUME reçu:', data);
+          setLiveState(prev => ({ ...prev, ...data }));
+          
+          const audioEngine = audioEngineRef.current;
+          if (audioEngine && !isCoach) {
+            audioEngine.setVolume(data.volume);
+          }
+        });
+        
+        channel.bind(LIVE_EVENTS.END, () => {
+          console.log('[LIVE] SESSION TERMINÉE');
+          setLiveState(prev => prev ? { ...prev, isPlaying: false } : null);
+          
+          const audioEngine = audioEngineRef.current;
+          if (audioEngine) {
+            audioEngine.pause();
+          }
+        });
+        
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Erreur de connexion';
+        setConnectionError(message);
+        onError?.(message);
+        console.error('[LIVE] Connection error:', error);
       }
-      
-      // Synchroniser l'audio pour les nouveaux arrivants
-      const audioEngine = audioEngineRef.current;
-      if (audioEngine && !isCoach) {
-        audioEngine.setVolume(data.volume);
-        if (data.isPlaying) {
-          audioEngine.seek(data.currentTime);
-          audioEngine.play();
-        }
-      }
-    }));
+    };
     
-    // Play
-    unsubs.push(client.on(WS_EVENTS.PLAY, (data) => {
-      console.log('[useLiveSession] Received PLAY:', data);
-      const receiveTime = Date.now();
-      const eventLatency = data.timestamp ? receiveTime - data.timestamp : 0;
-      console.log(`[useLiveSession] PLAY event latency: ${eventLatency}ms`);
-      
-      setSessionState(prev => prev ? { 
-        ...prev, 
-        isPlaying: true, 
-        currentTime: data.currentTime 
-      } : null);
-      
-      // Synchroniser l'audio (participants uniquement)
-      const audioEngine = audioEngineRef.current;
-      if (audioEngine && !isCoach) {
-        audioEngine.seek(data.currentTime);
-        audioEngine.play();
-      }
-    }));
-    
-    // Pause
-    unsubs.push(client.on(WS_EVENTS.PAUSE, (data) => {
-      console.log('[useLiveSession] Received PAUSE:', data);
-      
-      setSessionState(prev => prev ? { 
-        ...prev, 
-        isPlaying: false, 
-        currentTime: data.currentTime 
-      } : null);
-      
-      const audioEngine = audioEngineRef.current;
-      if (audioEngine && !isCoach) {
-        audioEngine.pause();
-        audioEngine.seek(data.currentTime);
-      }
-    }));
-    
-    // Seek
-    unsubs.push(client.on(WS_EVENTS.SEEK, (data) => {
-      console.log('[useLiveSession] Received SEEK:', data);
-      
-      setSessionState(prev => prev ? { 
-        ...prev, 
-        currentTime: data.currentTime 
-      } : null);
-      
-      const audioEngine = audioEngineRef.current;
-      if (audioEngine && !isCoach) {
-        audioEngine.seek(data.currentTime);
-      }
-    }));
-    
-    // Volume
-    unsubs.push(client.on(WS_EVENTS.VOLUME, (data) => {
-      console.log('[useLiveSession] Received VOLUME:', data);
-      
-      setSessionState(prev => prev ? { 
-        ...prev, 
-        volume: data.volume 
-      } : null);
-      
-      const audioEngine = audioEngineRef.current;
-      if (audioEngine && !isCoach) {
-        audioEngine.setVolume(data.volume);
-      }
-    }));
-    
-    // End
-    unsubs.push(client.on(WS_EVENTS.END, () => {
-      console.log('[useLiveSession] Received END');
-      
-      setSessionState(prev => prev ? { 
-        ...prev, 
-        status: 'ENDED', 
-        isPlaying: false 
-      } : null);
-      
-      const audioEngine = audioEngineRef.current;
-      if (audioEngine) {
-        audioEngine.pause();
-      }
-    }));
-    
-    // Participant joined
-    unsubs.push(client.on(WS_EVENTS.PARTICIPANT_JOINED, (data) => {
-      console.log('[useLiveSession] Participant joined:', data);
-      setParticipants(prev => {
-        if (prev.find(p => p.id === data.userId)) return prev;
-        return [...prev, { id: data.userId, name: data.userName, role: data.role }];
-      });
-    }));
-    
-    // Participant left
-    unsubs.push(client.on(WS_EVENTS.PARTICIPANT_LEFT, (data) => {
-      console.log('[useLiveSession] Participant left:', data);
-      setParticipants(prev => prev.filter(p => p.id !== data.userId));
-    }));
-    
-    // Error
-    unsubs.push(client.on(WS_EVENTS.ERROR, (data) => {
-      console.error('[useLiveSession] Server error:', data);
-      onError?.(data.message || 'Erreur serveur');
-    }));
-    
-    // Pong (latency measurement)
-    unsubs.push(client.on(WS_EVENTS.PONG, (data) => {
-      if (data.serverTime) {
-        const lat = Date.now() - data.serverTime;
-        setLatency(lat);
-      }
-    }));
-    
-    unsubscribersRef.current = unsubs;
+    connectPusher();
     
     // Cleanup
     return () => {
-      unsubs.forEach(unsub => unsub());
-      client.leaveSession();
+      if (channel) {
+        channel.unbind_all();
+        const pusher = getPusherClient();
+        pusher.unsubscribe(getChannelName(sessionId));
+      }
+      channelRef.current = null;
     };
-  }, [sessionId, userId, userName, userRole, isCoach, onError]);
+  }, [sessionId, isCoach, refreshState, onError]);
   
   // ========================================
-  // AUDIO ENGINE SETUP
+  // AUDIO ENGINE
   // ========================================
   
   useEffect(() => {
@@ -286,73 +286,83 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
   }, [mediaUrl]);
   
   // ========================================
-  // ACTIONS COACH
+  // COACH ACTIONS (API CALLS)
   // ========================================
   
-  const play = useCallback(() => {
-    if (!isCoach) return;
+  const sendEvent = useCallback(async (type: string, data: object = {}) => {
+    if (!isCoach) {
+      onError?.('Seul le coach peut contrôler la session');
+      return;
+    }
     
+    try {
+      const response = await fetch(`/api/live/${sessionId}/event`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, ...data }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Erreur serveur');
+      }
+      
+      const result = await response.json();
+      console.log(`[LIVE] ${type} envoyé - processing: ${result.metrics?.processingTime}ms`);
+      
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erreur inconnue';
+      onError?.(message);
+      console.error('[LIVE] Send error:', error);
+    }
+  }, [sessionId, isCoach, onError]);
+  
+  const play = useCallback(async () => {
     const audioEngine = audioEngineRef.current;
-    const client = clientRef.current;
     const currentTime = audioEngine?.state.currentTime || 0;
     
     // Action locale immédiate
     audioEngine?.play();
+    setLiveState(prev => prev ? { ...prev, isPlaying: true } : null);
     
-    // Envoyer via WebSocket
-    client?.play(currentTime);
-    
-    console.log(`[useLiveSession] PLAY sent at ${currentTime}s`);
-  }, [isCoach]);
+    // Envoyer via API
+    await sendEvent('play', { currentTime });
+  }, [sendEvent]);
   
-  const pause = useCallback(() => {
-    if (!isCoach) return;
-    
+  const pause = useCallback(async () => {
     const audioEngine = audioEngineRef.current;
-    const client = clientRef.current;
     const currentTime = audioEngine?.state.currentTime || 0;
     
     audioEngine?.pause();
-    client?.pause(currentTime);
+    setLiveState(prev => prev ? { ...prev, isPlaying: false } : null);
     
-    console.log(`[useLiveSession] PAUSE sent at ${currentTime}s`);
-  }, [isCoach]);
+    await sendEvent('pause', { currentTime });
+  }, [sendEvent]);
   
-  const seek = useCallback((time: number) => {
-    if (!isCoach) return;
-    
+  const seek = useCallback(async (time: number) => {
     const audioEngine = audioEngineRef.current;
-    const client = clientRef.current;
     
     audioEngine?.seek(time);
-    client?.seek(time);
+    setLiveState(prev => prev ? { ...prev, currentTime: time } : null);
     
-    console.log(`[useLiveSession] SEEK sent to ${time}s`);
-  }, [isCoach]);
+    await sendEvent('seek', { currentTime: time });
+  }, [sendEvent]);
   
-  const setVolume = useCallback((volume: number) => {
-    if (!isCoach) return;
-    
+  const setVolume = useCallback(async (volume: number) => {
     const audioEngine = audioEngineRef.current;
-    const client = clientRef.current;
     
     audioEngine?.setVolume(volume);
-    client?.setVolume(volume);
+    setLiveState(prev => prev ? { ...prev, volume } : null);
     
-    console.log(`[useLiveSession] VOLUME sent: ${volume}%`);
-  }, [isCoach]);
+    await sendEvent('volume', { volume });
+  }, [sendEvent]);
   
-  const endSession = useCallback(() => {
-    if (!isCoach) return;
-    
+  const endSession = useCallback(async () => {
     const audioEngine = audioEngineRef.current;
-    const client = clientRef.current;
-    
     audioEngine?.pause();
-    client?.endSession();
     
-    console.log(`[useLiveSession] END sent`);
-  }, [isCoach]);
+    await sendEvent('end');
+  }, [sendEvent]);
   
   // ========================================
   // RETURN
@@ -361,8 +371,7 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
   return {
     isConnected,
     connectionError,
-    latency,
-    sessionState,
+    liveState,
     audioState,
     participants,
     participantCount: participants.length,
@@ -371,6 +380,7 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
     seek,
     setVolume,
     endSession,
+    refreshState,
     isCoach,
   };
 }
