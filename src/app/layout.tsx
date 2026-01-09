@@ -3,7 +3,6 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import { Toaster } from 'sonner';
 import { AuthProvider } from '@/components/providers/AuthProvider';
-import { ThemeProvider } from '@/components/providers/ThemeProvider';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -17,16 +16,15 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Layout 100% statique - ZÉRO DB, ZÉRO auth
+  // Layout 100% statique - ZÉRO dépendance externe
+  // Render TOUJOURS, même si auth/DB down
   return (
-    <html lang="fr" suppressHydrationWarning>
-      <body className={inter.className}>
+    <html lang="fr">
+      <body className={inter.className} style={{ backgroundColor: '#f8fafc', minHeight: '100vh' }}>
         <AuthProvider>
-          <ThemeProvider>
-            {children}
-          </ThemeProvider>
-          <Toaster position="top-center" richColors />
+          {children}
         </AuthProvider>
+        <Toaster position="top-center" richColors />
       </body>
     </html>
   );

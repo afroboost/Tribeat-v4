@@ -1,51 +1,33 @@
 /**
- * Middleware - Protection des routes admin
- * Redirige vers login si pas authentifié
+ * Middleware SIMPLIFIÉ
+ * Fait UNIQUEMENT : vérifier existence token
+ * AUCUNE logique métier, AUCUNE DB
  */
 
-import { getToken } from 'next-auth/jwt';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-export async function middleware(request: NextRequest) {
+export function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   
-  // Récupérer le token JWT
-  const token = await getToken({ 
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET || 'tribeat-super-secret-key-change-in-prod',
-  });
+  // Vérifier la présence d'un cookie de session NextAuth
+  const sessionToken = 
+    request.cookies.get('next-auth.session-token')?.value ||
+    request.cookies.get('__Secure-next-auth.session-token')?.value;
 
-  // Routes admin protégées
+  // Routes admin : token requis
   if (path.startsWith('/admin')) {
-    if (!token) {
+    if (!sessionToken) {
       const loginUrl = new URL('/auth/login', request.url);
       loginUrl.searchParams.set('callbackUrl', path);
       return NextResponse.redirect(loginUrl);
     }
-    
-    // Vérifier le rôle SUPER_ADMIN
-    if (token.role !== 'SUPER_ADMIN') {
-      return NextResponse.redirect(new URL('/403', request.url));
-    }
+    // Le rôle sera vérifié côté serveur dans le layout
   }
 
-  // Routes coach protégées
-  if (path.startsWith('/coach')) {
-    if (!token) {
-      const loginUrl = new URL('/auth/login', request.url);
-      loginUrl.searchParams.set('callbackUrl', path);
-      return NextResponse.redirect(loginUrl);
-    }
-    
-    if (token.role !== 'COACH' && token.role !== 'SUPER_ADMIN') {
-      return NextResponse.redirect(new URL('/403', request.url));
-    }
-  }
-
-  // Routes sessions protégées (user connecté)
-  if (path.startsWith('/sessions') || path.match(/^\/session\/[^/]+$/)) {
-    if (!token) {
+  // Routes protégées : token requis
+  if (path.startsWith('/sessions') || path.startsWith('/session/')) {
+    if (!sessionToken) {
       const loginUrl = new URL('/auth/login', request.url);
       loginUrl.searchParams.set('callbackUrl', path);
       return NextResponse.redirect(loginUrl);
@@ -58,7 +40,6 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     '/admin/:path*',
-    '/coach/:path*', 
     '/sessions',
     '/session/:path*',
   ],
