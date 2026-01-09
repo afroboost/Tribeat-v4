@@ -12,7 +12,7 @@ import { ReactNode } from 'react';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   return (
-    <SessionProvider basePath="/auth-api/auth">
+    <SessionProvider basePath="/auth-api">
       {children}
     </SessionProvider>
   );
