@@ -1,5 +1,5 @@
-import { Prisma, WalletLedgerDirection, WalletLedgerSource, WalletOwnerType } from '@prisma/client';
-import { createLedgerEntryOnce, type WalletTx } from '@/lib/wallet/ledgerService';
+import { Prisma } from '@prisma/client';
+import { createLedgerEntry, type WalletTx } from '@/lib/wallet/ledgerService';
 
 export const PLATFORM_WALLET_ID = 'platform';
 
@@ -73,8 +73,10 @@ export async function recordSessionPaymentSettlement(params: {
   await ensurePlatformWallet(tx, currency);
   await ensureCoachWallet(tx, coachId, currency);
 
-  // 1) PLATFORM credit
-  const platformLedgerCreated = await createLedgerEntryOnce(tx, {
+  // RULE: no wallet mutation without ledger entry.
+  // We insert ledger first (unique constraint provides idempotence); if it fails, the whole tx rolls back.
+
+  await createLedgerEntry(tx, {
     ownerType: 'PLATFORM',
     ownerId: PLATFORM_WALLET_ID,
     source: 'SESSION_PAYMENT',
@@ -83,18 +85,8 @@ export async function recordSessionPaymentSettlement(params: {
     currency,
     referenceId,
   });
-  if (platformLedgerCreated) {
-    await tx.platformWallet.update({
-      where: { id: PLATFORM_WALLET_ID },
-      data: {
-        balance: { increment: platformCut },
-        commissionTotal: { increment: platformCut },
-      },
-    });
-  }
 
-  // 2) COACH pending credit
-  const coachLedgerCreated = await createLedgerEntryOnce(tx, {
+  await createLedgerEntry(tx, {
     ownerType: 'COACH',
     ownerId: coachId,
     source: 'SESSION_PAYMENT',
@@ -103,14 +95,21 @@ export async function recordSessionPaymentSettlement(params: {
     currency,
     referenceId,
   });
-  if (coachLedgerCreated) {
-    await tx.coachWallet.update({
-      where: { coachId },
-      data: {
-        pendingAmount: { increment: coachCut },
-      },
-    });
-  }
+
+  await tx.platformWallet.update({
+    where: { id: PLATFORM_WALLET_ID },
+    data: {
+      balance: { increment: platformCut },
+      commissionTotal: { increment: platformCut },
+    },
+  });
+
+  await tx.coachWallet.update({
+    where: { coachId },
+    data: {
+      pendingAmount: { increment: coachCut },
+    },
+  });
 }
 
 /**
@@ -131,7 +130,8 @@ export async function releaseCoachPendingToAvailable(params: {
   await ensureCoachWallet(tx, coachId, currency);
 
   // Represent internal transfer as 2 ledger lines for auditability.
-  const debitCreated = await createLedgerEntryOnce(tx, {
+  // Insert ledger first; if a duplicate happens, tx rolls back => no partial ledger, no balance mutation.
+  await createLedgerEntry(tx, {
     ownerType: 'COACH',
     ownerId: coachId,
     source: 'SESSION_PAYMENT',
@@ -141,7 +141,7 @@ export async function releaseCoachPendingToAvailable(params: {
     referenceId,
   });
 
-  const creditCreated = await createLedgerEntryOnce(tx, {
+  await createLedgerEntry(tx, {
     ownerType: 'COACH',
     ownerId: coachId,
     source: 'SESSION_PAYMENT',
@@ -151,15 +151,12 @@ export async function releaseCoachPendingToAvailable(params: {
     referenceId,
   });
 
-  // Only mutate balances if we successfully created BOTH lines (ensures "no mutation without ledger").
-  if (debitCreated && creditCreated) {
-    await tx.coachWallet.update({
-      where: { coachId },
-      data: {
-        pendingAmount: { decrement: amount },
-        availableAmount: { increment: amount },
-      },
-    });
-  }
+  await tx.coachWallet.update({
+    where: { coachId },
+    data: {
+      pendingAmount: { decrement: amount },
+      availableAmount: { increment: amount },
+    },
+  });
 }
 

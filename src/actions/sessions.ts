@@ -15,6 +15,7 @@ import { prisma } from '@/lib/prisma';
 import { isCoachOrAdmin, getAuthSession } from '@/lib/auth';
 import { checkUserAccess } from '@/actions/access';
 import { releaseCoachPendingToAvailable } from '@/lib/wallet/walletService';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { SessionStatus, MediaType } from '@prisma/client';
 
@@ -349,19 +350,6 @@ export async function endSessionAction(id: string) {
       const coachCutTotal = sum._sum.coachCut || 0;
       if (coachCutTotal <= 0) return;
 
-      // Mark payments as released (idempotence gate for release)
-      const releasedAt = new Date();
-      const res = await tx.sessionPayment.updateMany({
-        where: {
-          sessionId: id,
-          status: 'PAID',
-          releasedToCoachAt: null,
-        },
-        data: { releasedToCoachAt: releasedAt },
-      });
-
-      if (res.count <= 0) return;
-
       // Currency is enforced per-transaction in payments; for foundation we assume one currency per session.
       const anyPayment = await tx.sessionPayment.findFirst({
         where: { sessionId: id, status: 'PAID' },
@@ -369,12 +357,39 @@ export async function endSessionAction(id: string) {
       });
       const currency = anyPayment?.currency || 'CHF';
 
-      await releaseCoachPendingToAvailable({
-        tx,
-        coachId: existingSession.coachId,
-        currency,
-        amount: coachCutTotal,
-        referenceId: `SESSION_END:${id}`,
+      try {
+        await releaseCoachPendingToAvailable({
+          tx,
+          coachId: existingSession.coachId,
+          currency,
+          amount: coachCutTotal,
+          referenceId: `SESSION_END:${id}`,
+        });
+      } catch (e) {
+        // Idempotence: if release ledger already exists, do not mutate balances again.
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+          // Ensure payments are marked released (metadata only, no money mutation).
+          await tx.sessionPayment.updateMany({
+            where: {
+              sessionId: id,
+              status: 'PAID',
+              releasedToCoachAt: null,
+            },
+            data: { releasedToCoachAt: new Date() },
+          });
+          return;
+        }
+        throw e;
+      }
+
+      // Mark payments as released only after successful ledger+wallet mutation.
+      await tx.sessionPayment.updateMany({
+        where: {
+          sessionId: id,
+          status: 'PAID',
+          releasedToCoachAt: null,
+        },
+        data: { releasedToCoachAt: new Date() },
       });
     });
 
