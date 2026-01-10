@@ -1,14 +1,21 @@
-import { Prisma, WalletLedgerDirection, WalletLedgerSource, WalletOwnerType } from '@prisma/client';
+import {
+  Prisma,
+  WalletLedgerDirection,
+  WalletLedgerReferenceType,
+  WalletLedgerSource,
+  WalletOwnerType,
+} from '@prisma/client';
 
 export type WalletTx = Prisma.TransactionClient;
 
 export interface LedgerEntryInput {
   ownerType: WalletOwnerType;
-  ownerId: string;
+  ownerId: string | null;
   source: WalletLedgerSource;
   direction: WalletLedgerDirection;
   amount: number; // cents
   currency: string;
+  referenceType: WalletLedgerReferenceType;
   referenceId: string;
 }
 
@@ -25,6 +32,7 @@ export async function createLedgerEntry(tx: WalletTx, entry: LedgerEntryInput) {
       direction: entry.direction,
       amount: entry.amount,
       currency: entry.currency,
+      referenceType: entry.referenceType,
       referenceId: entry.referenceId,
     },
   });

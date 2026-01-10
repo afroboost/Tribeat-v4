@@ -274,7 +274,7 @@ model PlatformWallet {
   // Singleton
   id              String   @id @default("platform")
   balance         Int      @default(0) // cents
-  commissionTotal Int      @default(0) // cents
+  totalCommission Int      @default(0) // cents
   currency        String   @default("CHF")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -296,19 +296,25 @@ enum WalletLedgerDirection {
   DEBIT
 }
 
+enum WalletLedgerReferenceType {
+  TRANSACTION
+  SESSION
+}
+
 model WalletLedger {
-  id          String                @id @default(cuid())
-  ownerType   WalletOwnerType
-  ownerId     String
-  source      WalletLedgerSource
-  direction   WalletLedgerDirection
-  amount      Int // cents
-  currency    String                @default("CHF")
-  referenceId String
-  createdAt   DateTime              @default(now())
+  id            String                    @id @default(cuid())
+  ownerType     WalletOwnerType
+  ownerId       String? // NULL for PLATFORM
+  source        WalletLedgerSource
+  direction     WalletLedgerDirection
+  amount        Int // cents
+  currency      String                    @default("CHF")
+  referenceType WalletLedgerReferenceType
+  referenceId   String
+  createdAt     DateTime                  @default(now())
 
   // Hard idempotence for ledger entries per reference
-  @@unique([ownerType, ownerId, source, direction, referenceId])
+  @@unique([ownerType, ownerId, source, direction, referenceType, referenceId])
   @@index([ownerType, ownerId])
   @@index([source])
   @@index([referenceId])

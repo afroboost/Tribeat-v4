@@ -23,7 +23,7 @@ async function ensurePlatformWallet(tx: WalletTx, currency: string) {
       id: PLATFORM_WALLET_ID,
       currency,
       balance: 0,
-      commissionTotal: 0,
+      totalCommission: 0,
     },
     update: {},
   });
@@ -66,9 +66,10 @@ export async function recordSessionPaymentSettlement(params: {
   amount: number;
   platformCut: number;
   coachCut: number;
+  referenceType: 'TRANSACTION';
   referenceId: string; // transactionId
 }): Promise<void> {
-  const { tx, coachId, currency, platformCut, coachCut, referenceId } = params;
+  const { tx, coachId, currency, platformCut, coachCut, referenceType, referenceId } = params;
 
   await ensurePlatformWallet(tx, currency);
   await ensureCoachWallet(tx, coachId, currency);
@@ -78,11 +79,12 @@ export async function recordSessionPaymentSettlement(params: {
 
   await createLedgerEntry(tx, {
     ownerType: 'PLATFORM',
-    ownerId: PLATFORM_WALLET_ID,
+    ownerId: null,
     source: 'SESSION_PAYMENT',
     direction: 'CREDIT',
     amount: platformCut,
     currency,
+    referenceType,
     referenceId,
   });
 
@@ -93,6 +95,7 @@ export async function recordSessionPaymentSettlement(params: {
     direction: 'CREDIT',
     amount: coachCut,
     currency,
+    referenceType,
     referenceId,
   });
 
@@ -100,7 +103,7 @@ export async function recordSessionPaymentSettlement(params: {
     where: { id: PLATFORM_WALLET_ID },
     data: {
       balance: { increment: platformCut },
-      commissionTotal: { increment: platformCut },
+      totalCommission: { increment: platformCut },
     },
   });
 
@@ -122,9 +125,10 @@ export async function releaseCoachPendingToAvailable(params: {
   coachId: string;
   currency: string;
   amount: number;
-  referenceId: string; // e.g. SESSION_END:<sessionId>
+  referenceType: 'SESSION';
+  referenceId: string; // sessionId
 }): Promise<void> {
-  const { tx, coachId, currency, amount, referenceId } = params;
+  const { tx, coachId, currency, amount, referenceType, referenceId } = params;
   if (amount <= 0) return;
 
   await ensureCoachWallet(tx, coachId, currency);
@@ -138,6 +142,7 @@ export async function releaseCoachPendingToAvailable(params: {
     direction: 'DEBIT',
     amount,
     currency,
+    referenceType,
     referenceId,
   });
 
@@ -148,6 +153,7 @@ export async function releaseCoachPendingToAvailable(params: {
     direction: 'CREDIT',
     amount,
     currency,
+    referenceType,
     referenceId,
   });
 

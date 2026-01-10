@@ -365,7 +365,8 @@ export async function endSessionAction(id: string) {
           coachId: existingSession.coachId,
           currency,
           amount: coachCutTotal,
-          referenceId: `SESSION_END:${id}`,
+          referenceType: 'SESSION',
+          referenceId: id,
         });
       } catch (e) {
         // Idempotence: if release ledger already exists, do not mutate balances again.

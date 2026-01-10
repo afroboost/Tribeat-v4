@@ -183,6 +183,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       amount,
       platformCut,
       coachCut,
+      referenceType: 'TRANSACTION',
       referenceId: existingTransaction.id,
     });
     })
