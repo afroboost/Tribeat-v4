@@ -62,6 +62,35 @@ export function SessionList({ initialSessions, coaches }: SessionListProps) {
     }
   };
 
+  const toggleChat = async (sessionId: string, enabled: boolean) => {
+    try {
+      const res = await fetch(`/api/admin/sessions/${sessionId}/chat`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Erreur');
+      toast.success(enabled ? 'Chat activé' : 'Chat désactivé');
+      window.location.reload();
+    } catch (e: any) {
+      toast.error(e.message || 'Erreur');
+    }
+  };
+
+  const resetLikes = async (sessionId: string) => {
+    if (!confirm('Reset likes counter ?')) return;
+    try {
+      const res = await fetch(`/api/admin/sessions/${sessionId}/likes/reset`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Erreur');
+      toast.success('Likes reset');
+      window.location.reload();
+    } catch (e: any) {
+      toast.error(e.message || 'Erreur');
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Bouton création */}
@@ -151,14 +180,26 @@ export function SessionList({ initialSessions, coaches }: SessionListProps) {
                   <span className="inline-block mt-2 px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
                     {session.status}
                   </span>
+                  <div className="mt-2 text-xs text-gray-600 space-y-1">
+                    <div>Chat: {session.chatEnabled ? 'ON' : 'OFF'}</div>
+                    <div>Likes: {session.likesCount ?? 0}</div>
+                  </div>
                 </div>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => handleDelete(session.id)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => toggleChat(session.id, !session.chatEnabled)}
+                  >
+                    {session.chatEnabled ? 'Désactiver chat' : 'Activer chat'}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => resetLikes(session.id)}>
+                    Reset likes
+                  </Button>
+                  <Button variant="destructive" size="sm" onClick={() => handleDelete(session.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

@@ -18,6 +18,7 @@ import { useLiveSession } from '@/hooks/useLiveSession';
 import { LiveStatus } from './LiveStatus';
 import { CoachControls } from './CoachControls';
 import { ParticipantPlayer } from './ParticipantPlayer';
+import { LiveInteractions } from './LiveInteractions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { User, Users, AlertCircle, RefreshCw } from 'lucide-react';
@@ -80,6 +81,11 @@ export function LiveSessionClient({
     endSession,
     refreshState,
     isCoach,
+    chatEnabled,
+    messages,
+    sendMessage,
+    likesCount,
+    sendLike,
   } = useLiveSession({
     sessionId,
     userId: currentUserId,
@@ -227,6 +233,19 @@ export function LiveSessionClient({
         
         {/* Sidebar - Participants */}
         <div className="space-y-4">
+          <LiveInteractions
+            isConnected={isConnected}
+            chatEnabled={chatEnabled}
+            messages={messages}
+            likesCount={likesCount}
+            onSendMessage={async (content) => {
+              await sendMessage(content);
+            }}
+            onLike={async () => {
+              await sendLike();
+            }}
+          />
+
           <Card className="bg-gray-800 border-gray-700">
             <CardHeader>
               <CardTitle className="text-white text-lg flex items-center gap-2">

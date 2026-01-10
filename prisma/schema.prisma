@@ -34,6 +34,7 @@ model User {
   coachedSessions         Session[]            @relation("CoachSessions")
   sessionRoles            SessionParticipant[]
   messages                ChatMessage[]
+  sessionLikes            SessionLike[]
   transactions            Transaction[]
   accesses                UserAccess[]
   promoCodesCreated       PromoCode[]          @relation("PromoCodesCreated")
@@ -88,6 +89,8 @@ model Session {
   // Métadonnées
   maxParticipants Int?
   isPublic        Boolean @default(true)
+  chatEnabled     Boolean @default(true)
+  likesCount      Int     @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -95,6 +98,7 @@ model Session {
   // Relations
   participants     SessionParticipant[]
   messages         ChatMessage[]
+  likes            SessionLike[]
   offers           Offer[]
   accesses         UserAccess[]
   promoCodes       PromoCode[]
@@ -105,6 +109,20 @@ model Session {
   @@index([coachId])
   @@index([status])
   @@index([scheduledAt])
+}
+
+model SessionLike {
+  id        String   @id @default(cuid())
+  sessionId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([sessionId, userId, createdAt])
+  @@index([userId, createdAt])
 }
 
 // ========================================

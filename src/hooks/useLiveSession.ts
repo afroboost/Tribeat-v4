@@ -66,6 +66,23 @@ export interface UseLiveSessionReturn {
   
   // Info
   isCoach: boolean;
+
+  // Chat
+  chatEnabled: boolean;
+  messages: Array<{
+    id: string;
+    sessionId: string;
+    userId: string;
+    userName: string;
+    userRole: string;
+    content: string;
+    timestamp: string | Date;
+  }>;
+  sendMessage: (content: string) => Promise<void>;
+
+  // Likes
+  likesCount: number;
+  sendLike: () => Promise<void>;
 }
 
 // ========================================
@@ -85,6 +102,19 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
   const [liveState, setLiveState] = useState<LiveState | null>(null);
   const [audioState, setAudioState] = useState<AudioEngineState | null>(null);
   const [participants, setParticipants] = useState<LiveParticipant[]>([]);
+  const [messages, setMessages] = useState<
+    Array<{
+      id: string;
+      sessionId: string;
+      userId: string;
+      userName: string;
+      userRole: string;
+      content: string;
+      timestamp: string | Date;
+    }>
+  >([]);
+  const [chatEnabled, setChatEnabled] = useState(true);
+  const [likesCount, setLikesCount] = useState(0);
   
   const isCoach = userRole === 'COACH' || userRole === 'SUPER_ADMIN';
   
@@ -120,6 +150,29 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
       console.error('[LIVE] Erreur refresh state:', error);
     }
   }, [sessionId, isCoach]);
+
+  const refreshChat = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/live/${sessionId}/chat?limit=50`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (typeof data?.chatEnabled === 'boolean') setChatEnabled(data.chatEnabled);
+      if (Array.isArray(data?.messages)) setMessages(data.messages);
+    } catch (error) {
+      console.error('[LIVE] Erreur refresh chat:', error);
+    }
+  }, [sessionId]);
+
+  const refreshLikes = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/live/${sessionId}/likes`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (typeof data?.likesCount === 'number') setLikesCount(data.likesCount);
+    } catch (error) {
+      console.error('[LIVE] Erreur refresh likes:', error);
+    }
+  }, [sessionId]);
   
   // ========================================
   // PUSHER CONNECTION
@@ -158,6 +211,8 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
           
           // Récupérer l'état depuis la DB
           refreshState();
+          refreshChat();
+          refreshLikes();
         });
         
         // Erreur de subscription
@@ -240,6 +295,30 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
             audioEngine.pause();
           }
         });
+
+        // ========================================
+        // CHAT + LIKES
+        // ========================================
+
+        channel.bind(LIVE_EVENTS.CHAT_MESSAGE, (data: any) => {
+          if (!data?.id) return;
+          setMessages((prev) => {
+            const next = [...prev, data];
+            return next.length > 200 ? next.slice(next.length - 200) : next;
+          });
+        });
+
+        channel.bind(LIVE_EVENTS.CHAT_STATUS, (data: any) => {
+          if (typeof data?.chatEnabled === 'boolean') {
+            setChatEnabled(Boolean(data.chatEnabled));
+          }
+        });
+
+        channel.bind(LIVE_EVENTS.LIKES_UPDATED, (data: any) => {
+          if (typeof data?.likesCount === 'number') {
+            setLikesCount(data.likesCount);
+          }
+        });
         
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Erreur de connexion';
@@ -260,7 +339,7 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
       }
       channelRef.current = null;
     };
-  }, [sessionId, isCoach, refreshState, onError]);
+  }, [sessionId, isCoach, refreshState, refreshChat, refreshLikes, onError]);
   
   // ========================================
   // AUDIO ENGINE
@@ -363,6 +442,33 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
     
     await sendEvent('end');
   }, [sendEvent]);
+
+  // ========================================
+  // CHAT + LIKES ACTIONS (API CALLS)
+  // ========================================
+
+  const sendMessage = useCallback(
+    async (content: string) => {
+      const response = await fetch(`/api/live/${sessionId}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.error || 'Erreur chat');
+      }
+    },
+    [sessionId]
+  );
+
+  const sendLike = useCallback(async () => {
+    const response = await fetch(`/api/live/${sessionId}/likes`, { method: 'POST' });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err?.error || 'Erreur like');
+    }
+  }, [sessionId]);
   
   // ========================================
   // RETURN
@@ -382,5 +488,10 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
     endSession,
     refreshState,
     isCoach,
+    chatEnabled,
+    messages,
+    sendMessage,
+    likesCount,
+    sendLike,
   };
 }

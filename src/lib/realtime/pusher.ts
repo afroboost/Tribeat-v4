@@ -109,4 +109,7 @@ export const LIVE_EVENTS = {
   END: 'session:end',
   PARTICIPANT_JOINED: 'participant:joined',
   PARTICIPANT_LEFT: 'participant:left',
+  CHAT_MESSAGE: 'chat:message',
+  CHAT_STATUS: 'chat:status',
+  LIKES_UPDATED: 'likes:count',
 } as const;
