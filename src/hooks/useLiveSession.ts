@@ -88,16 +88,19 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
   
   const isCoach = userRole === 'COACH' || userRole === 'SUPER_ADMIN';
   const debug = process.env.NODE_ENV !== 'production';
+  const hasHydratedRef = useRef(false);
   
   // ========================================
   // FETCH INITIAL STATE FROM DB
   // ========================================
   
-  const refreshState = useCallback(async () => {
+  const refreshState = useCallback(async (reason: string = 'resync') => {
     try {
-      const response = await fetch(`/api/live/${sessionId}/event`);
+      const response = await fetch(`/api/live/${sessionId}/event?reason=${encodeURIComponent(reason)}`);
       if (!response.ok) {
-        throw new Error('Impossible de récupérer l\'état');
+        const body = await response.json().catch(() => null);
+        const message = body?.error || 'Impossible de récupérer l\'état';
+        throw new Error(message);
       }
       
       const data = await response.json();
@@ -112,17 +115,23 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
           audioEngine.seek(data.state.currentTime);
           if (data.state.isPlaying) {
             audioEngine.play();
+          } else {
+            audioEngine.pause();
           }
         }
         
         if (debug) {
           console.log('[LIVE] État récupéré depuis DB:', data.state);
         }
+        hasHydratedRef.current = true;
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erreur de synchronisation';
+      setConnectionError(message);
+      onError?.(message);
       console.error('[LIVE] Erreur refresh state:', error);
     }
-  }, [sessionId, isCoach, debug]);
+  }, [sessionId, isCoach, debug, onError]);
   
   // ========================================
   // PUSHER CONNECTION
@@ -136,12 +145,24 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
         const pusher = getPusherClient();
         const channelName = getChannelName(sessionId);
         
+        // DB = source of truth: hydrater AVANT de s'abonner (late join safe)
+        await refreshState('join:pre-subscribe');
+
         if (debug) {
           console.log('[LIVE] Connexion à', channelName);
         }
         
         channel = pusher.subscribe(channelName) as PresenceChannel;
         channelRef.current = channel;
+
+        // Resync on reconnect
+        const handleConnected = () => {
+          // Si on s'est déjà hydraté une fois, chaque reconnexion doit resynchroniser
+          if (hasHydratedRef.current) {
+            refreshState('resync:reconnect');
+          }
+        };
+        pusher.connection.bind('connected', handleConnected);
         
         // Subscription réussie
         channel.bind('pusher:subscription_succeeded', (members: Members) => {
@@ -163,8 +184,8 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
             console.log('[LIVE] Connecté -', memberList.length, 'participants');
           }
           
-          // Récupérer l'état depuis la DB
-          refreshState();
+          // Re-synchroniser après subscription (évite les races entre fetch et subscribe)
+          refreshState('join:post-subscribe');
         });
         
         // Erreur de subscription
@@ -262,6 +283,14 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
           }
         });
         
+        // Cleanup for pusher connection bind
+        const cleanupConnectionBindings = () => {
+          pusher.connection.unbind('connected', handleConnected);
+        };
+        // Store on channel for cleanup path
+        // @ts-expect-error - internal marker for cleanup
+        channel.__tribeatCleanup = cleanupConnectionBindings;
+        
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Erreur de connexion';
         setConnectionError(message);
@@ -275,11 +304,21 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
     // Cleanup
     return () => {
       if (channel) {
+        // @ts-expect-error - internal marker for cleanup
+        channel.__tribeatCleanup?.();
         channel.unbind_all();
         const pusher = getPusherClient();
         pusher.unsubscribe(getChannelName(sessionId));
       }
       channelRef.current = null;
+
+      // Server-side LEAVE log (best-effort, no new endpoint)
+      // keepalive helps during tab close/navigation
+      try {
+        fetch(`/api/live/${sessionId}/event?reason=leave`, { method: 'GET', keepalive: true });
+      } catch {
+        // ignore
+      }
     };
   }, [sessionId, isCoach, refreshState, onError, debug]);
   
@@ -313,7 +352,7 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
   const sendEvent = useCallback(async (type: string, data: object = {}) => {
     if (!isCoach) {
       onError?.('Seul le coach peut contrôler la session');
-      return;
+      throw new Error('FORBIDDEN');
     }
     
     try {
@@ -332,24 +371,32 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
       if (debug) {
         console.log(`[LIVE] ${type} envoyé - processing: ${result.metrics?.processingTime}ms`);
       }
-      
+      if (result?.state) {
+        // DB is the source of truth: align local UI state to persisted state
+        setLiveState(result.state);
+      }
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erreur inconnue';
       onError?.(message);
       console.error('[LIVE] Send error:', error);
+      // Always resync after a failed emit (avoid desync)
+      await refreshState('resync:emit-failed');
+      throw error;
     }
-  }, [sessionId, isCoach, onError, debug]);
+  }, [sessionId, isCoach, onError, debug, refreshState]);
   
   const play = useCallback(async () => {
     const audioEngine = audioEngineRef.current;
     const currentTime = audioEngine?.state.currentTime || 0;
     
-    // Action locale immédiate
+    // Action locale immédiate (UX), mais DB reste la source de vérité
     audioEngine?.play();
-    setLiveState(prev => prev ? { ...prev, isPlaying: true } : null);
-    
-    // Envoyer via API
-    await sendEvent('play', { currentTime });
+    try {
+      await sendEvent('play', { currentTime });
+    } catch {
+      audioEngine?.pause();
+    }
   }, [sendEvent]);
   
   const pause = useCallback(async () => {
@@ -357,27 +404,33 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
     const currentTime = audioEngine?.state.currentTime || 0;
     
     audioEngine?.pause();
-    setLiveState(prev => prev ? { ...prev, isPlaying: false } : null);
-    
-    await sendEvent('pause', { currentTime });
+    try {
+      await sendEvent('pause', { currentTime });
+    } catch {
+      // rollback best-effort: state will be rehydrated
+    }
   }, [sendEvent]);
   
   const seek = useCallback(async (time: number) => {
     const audioEngine = audioEngineRef.current;
     
     audioEngine?.seek(time);
-    setLiveState(prev => prev ? { ...prev, currentTime: time } : null);
-    
-    await sendEvent('seek', { currentTime: time });
+    try {
+      await sendEvent('seek', { currentTime: time });
+    } catch {
+      // rollback via resync in sendEvent
+    }
   }, [sendEvent]);
   
   const setVolume = useCallback(async (volume: number) => {
     const audioEngine = audioEngineRef.current;
     
     audioEngine?.setVolume(volume);
-    setLiveState(prev => prev ? { ...prev, volume } : null);
-    
-    await sendEvent('volume', { volume });
+    try {
+      await sendEvent('volume', { volume });
+    } catch {
+      // rollback via resync in sendEvent
+    }
   }, [sendEvent]);
   
   const endSession = useCallback(async () => {
@@ -403,7 +456,7 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
     seek,
     setVolume,
     endSession,
-    refreshState,
+    refreshState: () => refreshState('manual:refresh'),
     isCoach,
   };
 }

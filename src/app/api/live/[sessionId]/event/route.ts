@@ -54,6 +54,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const userId = session.user.id;
     const userRole = session.user.role;
     
+    console.info('[LIVE][EVENT] incoming', { sessionId, userId, userRole });
+
     // 2. Vérifier que la session existe
     const liveSession = await prisma.session.findUnique({
       where: { id: sessionId },
@@ -134,6 +136,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         newState = { sessionId, isPlaying: false, currentTime: 0, volume: 80 };
         break;
     }
+
+    console.info('[LIVE][EVENT] persisted', { sessionId, type, by: userId });
     
     // 6. BROADCAST VIA PUSHER
     if (isPusherConfigured()) {
@@ -156,17 +160,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       
       await pusher.trigger(channelName, eventName, eventData);
       
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`[LIVE] ${type.toUpperCase()} broadcast to ${channelName}`, {
-          sessionId,
-          userId,
-          latency: Date.now() - startTime,
-        });
-      }
+      console.info('[LIVE][EVENT] broadcast', {
+        sessionId,
+        type,
+        channel: channelName,
+        by: userId,
+        latencyMs: Date.now() - startTime,
+      });
     } else {
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn('[LIVE] Pusher non configuré - broadcast désactivé');
-      }
+      console.warn('[LIVE][EVENT] pusher not configured - broadcast skipped', { sessionId, type });
     }
     
     // 7. Réponse avec métriques
@@ -195,6 +197,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { sessionId } = await params;
+    const reason = request.nextUrl.searchParams.get('reason') || 'resync';
     
     // Auth obligatoire
     const session = await getServerSession(authOptions);
@@ -229,6 +232,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const isCoach = liveSession.coachId === session.user.id;
     const isAdmin = session.user.role === 'SUPER_ADMIN';
     const isPublicLive = liveSession.isPublic && liveSession.status === 'LIVE';
+
+    console.info('[LIVE][STATE]', {
+      reason,
+      sessionId,
+      userId: session.user.id,
+      role: session.user.role,
+      coach: isCoach,
+      admin: isAdmin,
+    });
 
     if (!isCoach && !isAdmin && !isPublicLive) {
       const isParticipant = await prisma.sessionParticipant.findUnique({

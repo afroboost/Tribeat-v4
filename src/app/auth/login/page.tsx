@@ -32,6 +32,16 @@ const redirectByRole: Record<string, string> = {
   PARTICIPANT: '/sessions',
 };
 
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -63,11 +73,16 @@ function LoginForm() {
     setError(null);
 
     try {
-      const result = await signIn('credentials', {
+      // Éviter tout "hang" silencieux (réseau/NextAuth misconfig)
+      const result = await withTimeout(
+        signIn('credentials', {
         email: values.email,
         password: values.password,
         redirect: false,
-      });
+        }),
+        15000,
+        'La connexion a expiré (timeout). Vérifiez votre connexion et réessayez.'
+      );
 
       if (result?.error) {
         setError(result.error === 'CredentialsSignin' 
@@ -81,16 +96,31 @@ function LoginForm() {
         toast.success('Connexion réussie');
 
         // Récupérer la session fraîche (évite les états incohérents au refresh)
-        const nextSession = await getSession();
+        const nextSession = await withTimeout(
+          getSession(),
+          8000,
+          'Connexion réussie, mais la session n’a pas pu être chargée. Rechargez la page et réessayez.'
+        );
+        if (!nextSession?.user?.role) {
+          setError('Connexion réussie, mais aucun rôle n’a été trouvé dans la session.');
+          toast.error('Session invalide');
+          return;
+        }
         const role = nextSession?.user?.role ? String(nextSession.user.role) : '';
         const roleTarget = redirectByRole[role] || '/sessions';
 
         // callbackUrl (si présent) a priorité
         router.replace(callbackUrl || roleTarget);
         router.refresh();
+        return;
       }
+
+      // NextAuth peut retourner ok=false sans error explicit
+      setError('Connexion impossible. Vérifiez vos identifiants et réessayez.');
+      toast.error('Échec de la connexion');
     } catch (err) {
-      setError('Une erreur est survenue');
+      const message = err instanceof Error ? err.message : 'Une erreur est survenue';
+      setError(message);
       toast.error('Erreur de connexion');
     } finally {
       setIsLoading(false);
@@ -112,6 +142,15 @@ function LoginForm() {
           </Alert>
         )}
 
+        {status === 'loading' && (
+          <div className="flex items-center gap-3 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              Chargement de votre session…
+            </p>
+          </div>
+        )}
+
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
@@ -124,7 +163,7 @@ function LoginForm() {
                     <Input
                       type="email"
                       placeholder="admin@tribeat.com"
-                      disabled={isLoading}
+                      disabled={isLoading || status === 'loading'}
                       data-testid="login-email-input"
                       {...field}
                     />
@@ -144,7 +183,7 @@ function LoginForm() {
                     <Input
                       type="password"
                       placeholder="Admin123!"
-                      disabled={isLoading}
+                      disabled={isLoading || status === 'loading'}
                       data-testid="login-password-input"
                       {...field}
                     />
