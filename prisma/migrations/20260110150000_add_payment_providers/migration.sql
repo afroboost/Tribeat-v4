@@ -1,2 +1,0 @@
--- NOTE: SQLite stores enums as TEXT; no SQL changes needed here.
--- TODO(Postgres): ALTER TYPE "TransactionProvider" ADD VALUE for TWINT/MTN_MOMO/ORANGE_MONEY.

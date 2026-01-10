@@ -33,35 +33,22 @@ Plateforme de sessions live synchronisées pour coachs et participants avec audi
 
 ### Configuration de la Base de Données
 
-**Option 1 : PostgreSQL Production (Supabase/Neon)**
+**Option 1 : PostgreSQL Production (Supabase/Neon/Vercel Postgres)**
 
 ```bash
 # 1. Modifier .env avec votre URL PostgreSQL
 DATABASE_URL="postgresql://user:password@host:5432/tribeat"
 
-# 2. Push du schéma vers la DB
-yarn prisma db push
+# 2. Appliquer les migrations (recommandé en production)
+npx prisma migrate deploy
 
 # 3. Seed des données initiales
 yarn db:seed
 ```
 
-**Option 2 : Test Local avec SQLite**
+**Option 2 : Local dev**
 
-```bash
-# 1. Modifier temporairement prisma/schema.prisma
-# Remplacer: provider = "postgresql"
-# Par: provider = "sqlite"
-
-# 2. Modifier .env
-DATABASE_URL="file:./dev.db"
-
-# 3. Push et seed
-yarn prisma db push
-yarn db:seed
-
-# 4. Restaurer PostgreSQL dans schema.prisma pour production
-```
+Utilisez également PostgreSQL (recommandé) pour éviter tout écart entre dev et prod.
 
 ### Démarrage de l'Application
 
