@@ -44,11 +44,8 @@ export async function POST(request: NextRequest) {
       }
     } else {
       // Mode dev sans webhook secret (accepter mais logger warning)
-      console.warn('[WEBHOOK] No webhook secret - skipping signature verification (DEV ONLY)');
       event = JSON.parse(body) as Stripe.Event;
     }
-
-    console.log(`[WEBHOOK] Event received: ${event.type}`);
 
     // 3. Traiter les événements
     switch (event.type) {
@@ -71,7 +68,7 @@ export async function POST(request: NextRequest) {
       }
 
       default:
-        console.log(`[WEBHOOK] Unhandled event type: ${event.type}`);
+        // no-op
     }
 
     return NextResponse.json({ received: true });
@@ -198,7 +195,6 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     });
   });
 
-  console.log(`[WEBHOOK] Checkout completed: ${transactionId}`);
 }
 
 /**
@@ -214,13 +210,12 @@ async function handleCheckoutExpired(session: Stripe.Checkout.Session) {
     data: { status: 'FAILED' },
   });
 
-  console.log(`[WEBHOOK] Checkout expired: ${transactionId}`);
 }
 
 /**
  * Traiter un paiement échoué
  */
 async function handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
-  console.log(`[WEBHOOK] Payment failed: ${paymentIntent.id}`);
+  void paymentIntent;
   // Les transactions liées seront marquées FAILED via checkout.session.expired
 }

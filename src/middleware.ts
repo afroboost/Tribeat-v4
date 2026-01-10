@@ -17,13 +17,10 @@ export function middleware(request: NextRequest) {
   const sessionToken = 
     request.cookies.get('next-auth.session-token')?.value ||
     request.cookies.get('__Secure-next-auth.session-token')?.value;
-  
-  console.log('[MIDDLEWARE]', path, sessionToken ? '✓ token' : '✗ no token');
 
   // Routes admin : cookie requis
   if (path.startsWith('/admin')) {
     if (!sessionToken) {
-      console.log('[MIDDLEWARE] Redirect to login (no token for admin)');
       const loginUrl = new URL('/auth/login', request.url);
       loginUrl.searchParams.set('callbackUrl', path);
       return NextResponse.redirect(loginUrl);
@@ -33,7 +30,6 @@ export function middleware(request: NextRequest) {
   // Routes sessions : cookie requis
   if (path.startsWith('/sessions') || path.match(/^\/session\/[^/]+/)) {
     if (!sessionToken) {
-      console.log('[MIDDLEWARE] Redirect to login (no token for session)');
       const loginUrl = new URL('/auth/login', request.url);
       loginUrl.searchParams.set('callbackUrl', path);
       return NextResponse.redirect(loginUrl);

@@ -163,13 +163,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       
       await pusher.trigger(channelName, eventName, eventData);
       
-      console.log(`[LIVE] ${type.toUpperCase()} broadcast to ${channelName}`, {
-        sessionId,
-        userId,
-        latency: Date.now() - startTime,
-      });
+      void channelName;
     } else {
-      console.warn('[LIVE] Pusher non configuré - broadcast désactivé');
+      // no-op
     }
     
     // 7. Réponse avec métriques

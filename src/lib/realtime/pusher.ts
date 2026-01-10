@@ -73,7 +73,6 @@ export function getPusherClient(): PusherClient {
     
     // Debug logging
     _pusherClient.connection.bind('connected', () => {
-      console.log('[Pusher] Connecté - Socket ID:', _pusherClient?.connection.socket_id);
     });
     
     _pusherClient.connection.bind('error', (err: Error) => {
@@ -81,7 +80,6 @@ export function getPusherClient(): PusherClient {
     });
     
     _pusherClient.connection.bind('disconnected', () => {
-      console.log('[Pusher] Déconnecté');
     });
   }
   
