@@ -147,7 +147,6 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     const { platformCut, coachCut } = computeSplit(amount);
 
     // SessionPayment record (idempotence gate)
-    let paymentCreated = false;
     try {
       await tx.sessionPayment.create({
         data: {
@@ -162,16 +161,13 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           paidAt: new Date(),
         },
       });
-      paymentCreated = true;
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        // already processed (idempotence)
-        return;
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) {
+        throw e;
       }
-      throw e;
+      // If SessionPayment already exists, we still attempt ledger writes below (idempotent),
+      // in case a previous run crashed between payment creation and ledger insertion.
     }
-
-    if (!paymentCreated) return;
 
     // REAL IMMUTABLE LEDGER: create separate entries for platform and coach (balances derived from these)
     try {

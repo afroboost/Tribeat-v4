@@ -1,5 +1,4 @@
 import { PrismaClient } from '@prisma/client';
-import { isWalletMutationAllowed } from '@/lib/wallet/walletMutationGuard';
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -10,27 +9,27 @@ function createPrismaClient() {
     log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
   });
 
-  const walletMutations = new Set([
-    'create',
-    'createMany',
-    'update',
-    'updateMany',
-    'upsert',
-    'delete',
-    'deleteMany',
-  ]);
+  const DISALLOWED_WALLET_MUTATIONS = new Set(['create', 'createMany', 'update', 'updateMany', 'upsert', 'delete', 'deleteMany']);
+  const DISALLOWED_LEDGER_MUTATIONS = new Set(['update', 'updateMany', 'upsert', 'delete', 'deleteMany']);
 
-  const wrapWalletDelegate = (delegate: any, modelName: 'CoachWallet' | 'PlatformWallet') =>
+  const wrapDelegate = (delegate: any, modelName: string) =>
     new Proxy(delegate, {
       get(target, prop, receiver) {
         const orig = Reflect.get(target, prop, receiver);
-        if (typeof prop === 'string' && typeof orig === 'function' && walletMutations.has(prop)) {
-          return (...args: any[]) => {
-            if (!isWalletMutationAllowed()) {
-              throw new Error(`WALLET_MUTATION_BLOCKED: ${modelName}.${prop} must go through WalletService`);
-            }
-            return orig.apply(target, args);
-          };
+        if (typeof prop === 'string' && typeof orig === 'function') {
+          // Ledger must be immutable: INSERT only.
+          if (modelName === 'LedgerEntry' && DISALLOWED_LEDGER_MUTATIONS.has(prop)) {
+            return () => {
+              throw new Error(`LEDGER_IMMUTABLE: ${modelName}.${prop} is forbidden`);
+            };
+          }
+
+          // Balances must be derived from ledger sums: wallets cannot be mutated directly.
+          if ((modelName === 'CoachWallet' || modelName === 'PlatformWallet') && DISALLOWED_WALLET_MUTATIONS.has(prop)) {
+            return () => {
+              throw new Error(`BALANCE_MUTATION_FORBIDDEN: ${modelName}.${prop} is forbidden (derived from ledger)`);
+            };
+          }
         }
         return orig;
       },
@@ -40,10 +39,13 @@ function createPrismaClient() {
     new Proxy(c, {
       get(target, prop, receiver) {
         if (prop === 'coachWallet') {
-          return wrapWalletDelegate(Reflect.get(target, prop, receiver), 'CoachWallet');
+          return wrapDelegate(Reflect.get(target, prop, receiver), 'CoachWallet');
         }
         if (prop === 'platformWallet') {
-          return wrapWalletDelegate(Reflect.get(target, prop, receiver), 'PlatformWallet');
+          return wrapDelegate(Reflect.get(target, prop, receiver), 'PlatformWallet');
+        }
+        if (prop === 'ledgerEntry') {
+          return wrapDelegate(Reflect.get(target, prop, receiver), 'LedgerEntry');
         }
 
         // Ensure transaction callback receives a guarded tx client as well.
