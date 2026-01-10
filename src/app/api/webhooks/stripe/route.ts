@@ -65,6 +65,18 @@ export async function POST(request: NextRequest) {
         await handlePaymentFailed(paymentIntent);
         break;
       }
+      
+      case 'payout.paid': {
+        const payout = event.data.object as Stripe.Payout;
+        await handleStripePayoutPaid(payout);
+        break;
+      }
+      
+      case 'payout.failed': {
+        const payout = event.data.object as Stripe.Payout;
+        await handleStripePayoutFailed(payout);
+        break;
+      }
 
       default:
         console.log(`[WEBHOOK] Unhandled event type: ${event.type}`);
@@ -258,4 +270,26 @@ async function handleCheckoutExpired(session: Stripe.Checkout.Session) {
 async function handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
   console.log(`[WEBHOOK] Payment failed: ${paymentIntent.id}`);
   // Les transactions liées seront marquées FAILED via checkout.session.expired
+}
+
+async function handleStripePayoutPaid(payout: Stripe.Payout) {
+  if (!payout?.id) return;
+  await prisma.payout.updateMany({
+    where: { stripePayoutId: payout.id },
+    data: { status: 'PAID', paidAt: new Date(), failureReason: null },
+  });
+  console.log(`[WEBHOOK] Stripe payout paid: ${payout.id}`);
+}
+
+async function handleStripePayoutFailed(payout: Stripe.Payout) {
+  if (!payout?.id) return;
+  const failureMessage =
+    (payout.failure_message as string | null) ||
+    (payout.failure_code as string | null) ||
+    'payout_failed';
+  await prisma.payout.updateMany({
+    where: { stripePayoutId: payout.id },
+    data: { status: 'FAILED', failureReason: failureMessage },
+  });
+  console.log(`[WEBHOOK] Stripe payout failed: ${payout.id}`);
 }

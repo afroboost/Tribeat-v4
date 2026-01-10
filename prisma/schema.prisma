@@ -46,6 +46,7 @@ model User {
   ledgerEntries           LedgerEntry[]
   payouts                 Payout[]             @relation("CoachPayouts")
   payoutsApproved         Payout[]             @relation("ApprovedPayouts")
+  stripeConnectAccountId  String?              @unique
 
   @@index([email])
 }
@@ -264,18 +265,26 @@ enum LedgerEntryType {
 enum PayoutStatus {
   PENDING
   APPROVED
+  PROCESSING
+  PAID
+  FAILED
   REJECTED
 }
 
 model Payout {
-  id           String       @id @default(cuid())
-  coachId      String
-  amount       Int // positive cents requested; ledger entry stores negative amount
-  currency     String       @default("CHF")
-  status       PayoutStatus @default(PENDING)
-  createdAt    DateTime     @default(now())
-  approvedAt   DateTime?
-  approvedById String?
+  id                     String       @id @default(cuid())
+  coachId                String
+  amount                 Int // positive cents requested; ledger entry stores negative amount
+  currency               String       @default("CHF")
+  status                 PayoutStatus @default(PENDING)
+  createdAt              DateTime     @default(now())
+  approvedAt             DateTime?
+  approvedById           String?
+  stripeConnectAccountId String?
+  stripeTransferId       String?      @unique
+  stripePayoutId         String?      @unique
+  failureReason          String?
+  paidAt                 DateTime?
 
   coach       User         @relation("CoachPayouts", fields: [coachId], references: [id], onDelete: Cascade)
   approvedBy  User?        @relation("ApprovedPayouts", fields: [approvedById], references: [id], onDelete: SetNull)
