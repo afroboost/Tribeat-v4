@@ -19,7 +19,13 @@ export interface AuthResult {
  * À utiliser dans CHAQUE Server Action critique
  */
 export async function requireAdmin(): Promise<AuthResult> {
-  const session = await getServerSession(authOptions);
+  let session;
+  try {
+    session = await getServerSession(authOptions);
+  } catch (error) {
+    console.error('[AUTH] requireAdmin getServerSession failed', error);
+    session = null;
+  }
   
   if (!session?.user) {
     return {
@@ -45,7 +51,13 @@ export async function requireAdmin(): Promise<AuthResult> {
  * Vérifier l'authentification simple (user connecté)
  */
 export async function requireAuth(): Promise<AuthResult> {
-  const session = await getServerSession(authOptions);
+  let session;
+  try {
+    session = await getServerSession(authOptions);
+  } catch (error) {
+    console.error('[AUTH] requireAuth getServerSession failed', error);
+    session = null;
+  }
   
   if (!session?.user) {
     return {

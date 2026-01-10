@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -36,6 +36,14 @@ model User {
   messages         ChatMessage[]
   transactions     Transaction[]
   accesses         UserAccess[]
+  coachSubscriptions CoachSubscription[]
+  sessionPayments    SessionPayment[]  @relation("ParticipantSessionPayments")
+  coachBalance       CoachBalance?
+  promoCodesCreated  PromoCode[]       @relation("PromoCodesCreated")
+  promoRedemptions   PromoRedemption[] @relation("PromoRedemptionsByUser")
+  freeAccessGrants   FreeAccessGrant[] @relation("FreeAccessGrantsByUser")
+  freeAccessGiven    FreeAccessGrant[] @relation("FreeAccessGrantsByAdmin")
+  payoutRequests     CoachPayoutRequest[]
 
   @@index([email])
 }
@@ -86,6 +94,7 @@ model Session {
   messages     ChatMessage[]
   offers       Offer[]
   accesses     UserAccess[]
+  payments     SessionPayment[]
 
   @@index([coachId])
   @@index([status])
@@ -207,13 +216,137 @@ enum TransactionProvider {
   MANUAL
   STRIPE
   PAYSTACK
+  // Provider abstraction (v2)
+  // - TWINT is implemented via Stripe payment method (Checkout/PaymentIntent)
+  // - MOBILE_MONEY is implemented via Paystack aggregator
+  TWINT
+  MOBILE_MONEY
 }
 
 enum TransactionStatus {
   PENDING
   COMPLETED
   FAILED
+  CANCELLED
   REFUNDED
+}
+
+// ========================================
+// COACH SUBSCRIPTION (MONETIZATION)
+// ========================================
+
+enum CoachSubscriptionStatus {
+  ACTIVE
+  FREE_GRANTED
+  PROMO
+  CANCELED
+  EXPIRED
+}
+
+enum CoachSubscriptionSource {
+  STRIPE
+  PROMO
+  ADMIN
+}
+
+enum SessionPaymentStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+// ========================================
+// PROMO CODES
+// ========================================
+
+enum PromoCodeType {
+  PERCENT
+  FIXED
+  FULL_FREE
+}
+
+enum PromoCodeTarget {
+  COACH
+  PARTICIPANT
+  BOTH
+}
+
+enum PromoCodeDuration {
+  ONE_TIME
+  LIMITED_DAYS
+  UNLIMITED
+}
+
+model PromoCode {
+  id        String           @id @default(cuid())
+  code      String           @unique
+  type      PromoCodeType
+  value     Int              @default(0) // percent (0-100) or fixed amount (cents); 0 for FULL_FREE
+  target    PromoCodeTarget
+  duration  PromoCodeDuration
+  // for LIMITED_DAYS
+  durationDays Int?
+  maxUses   Int?
+  usedCount Int              @default(0)
+  expiresAt DateTime?
+  active    Boolean          @default(true)
+  createdBy String
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  creator   User             @relation("PromoCodesCreated", fields: [createdBy], references: [id], onDelete: Cascade)
+  redemptions PromoRedemption[]
+
+  @@index([active])
+  @@index([expiresAt])
+}
+
+model PromoRedemption {
+  id         String   @id @default(cuid())
+  promoCodeId String
+  userId     String
+  // optional binding to a specific session/offer purchase
+  sessionId  String?
+  offerId    String?
+  appliedAt  DateTime @default(now())
+  revokedAt  DateTime?
+  revokedBy  String?
+
+  promoCode PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  user      User      @relation("PromoRedemptionsByUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([promoCodeId])
+  @@index([sessionId])
+  @@unique([promoCodeId, userId, sessionId])
+}
+
+// ========================================
+// FREE ACCESS GRANTS (ADMIN)
+// ========================================
+
+enum FreeAccessTarget {
+  COACH
+  PARTICIPANT
+}
+
+model FreeAccessGrant {
+  id        String           @id @default(cuid())
+  target    FreeAccessTarget
+  userId    String
+  sessionId String?
+  expiresAt DateTime?
+  createdBy String
+  createdAt DateTime         @default(now())
+  revokedAt DateTime?
+  revokedBy String?
+
+  user    User @relation("FreeAccessGrantsByUser", fields: [userId], references: [id], onDelete: Cascade)
+  creator User @relation("FreeAccessGrantsByAdmin", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([target])
 }
 
 model Transaction {
@@ -232,11 +365,106 @@ model Transaction {
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   offer      Offer?      @relation(fields: [offerId], references: [id], onDelete: SetNull)
   userAccess UserAccess?
+  sessionPayment SessionPayment?
 
   @@index([userId])
   @@index([offerId])
   @@index([status])
   @@index([providerTxId])
+}
+
+model CoachSubscription {
+  id                    String                 @id @default(cuid())
+  userId                String
+  status                CoachSubscriptionStatus
+  source                CoachSubscriptionSource @default(STRIPE)
+  provider              TransactionProvider
+  providerSubscriptionId String?               @unique
+  currentPeriodStart    DateTime
+  currentPeriodEnd      DateTime
+  expiresAt             DateTime
+  promoCodeId           String?
+  freeAccessGrantId     String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+model SessionPayment {
+  id               String               @id @default(cuid())
+  sessionId         String
+  participantId     String
+  amount            Int                  // in cents
+  currency          String               @default("CHF")
+  provider          TransactionProvider
+  status            SessionPaymentStatus @default(PENDING)
+
+  // Revenue split (in cents)
+  platformCut       Int                  @default(0)
+  coachCut          Int                  @default(0)
+  commissionPercent Int                  @default(0)
+
+  transactionId     String?              @unique
+  createdAt         DateTime             @default(now())
+
+  session      Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  participant  User         @relation("ParticipantSessionPayments", fields: [participantId], references: [id], onDelete: Cascade)
+  transaction  Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([participantId])
+  @@index([status])
+}
+
+model CoachBalance {
+  coachId         String   @id
+  availableAmount Int      @default(0) // cents
+  pendingAmount   Int      @default(0) // cents
+  totalEarned     Int      @default(0) // cents
+  paidAmount      Int      @default(0) // cents
+  currency        String   @default("CHF")
+  updatedAt       DateTime @updatedAt
+
+  coach User @relation(fields: [coachId], references: [id], onDelete: Cascade)
+}
+
+model PlatformWallet {
+  id              String   @id @default(cuid())
+  balance         Int      @default(0) // cents
+  commissionTotal Int      @default(0) // cents
+  currency        String   @default("CHF")
+  updatedAt       DateTime @updatedAt
+}
+
+enum PayoutStatus {
+  REQUESTED
+  APPROVED
+  PAID
+  REJECTED
+  FAILED
+}
+
+model CoachPayoutRequest {
+  id         String      @id @default(cuid())
+  coachId    String
+  amount     Int         // cents
+  currency   String      @default("CHF")
+  status     PayoutStatus @default(REQUESTED)
+  createdAt  DateTime    @default(now())
+  approvedAt DateTime?
+  approvedBy String?
+  paidAt     DateTime?
+  provider   TransactionProvider @default(STRIPE)
+  providerPayoutId String?
+
+  coach User @relation(fields: [coachId], references: [id], onDelete: Cascade)
+
+  @@index([coachId])
+  @@index([status])
 }
 
 // ========================================

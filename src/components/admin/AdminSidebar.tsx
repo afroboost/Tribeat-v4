@@ -16,7 +16,8 @@ import {
   Download,
   Home,
   ShieldCheck,
-  CreditCard
+  CreditCard,
+  DollarSign
 } from 'lucide-react';
 
 const navigation = [
@@ -26,6 +27,7 @@ const navigation = [
   { name: 'Sessions', href: '/admin/sessions', icon: Video },
   { name: 'Accès', href: '/admin/access', icon: ShieldCheck },
   { name: 'Paiements', href: '/admin/payments', icon: CreditCard },
+  { name: 'Revenus', href: '/admin/revenue', icon: DollarSign },
   { name: 'Utilisateurs', href: '/admin/users', icon: Users },
   { name: 'Export', href: '/admin/export', icon: Download },
 ];

@@ -17,6 +17,7 @@ import {
   deleteTransaction,
   validateManualTransaction
 } from '@/actions/payments';
+import { revokeAccess as revokeUserAccess } from '@/actions/access';
 import { createOffer, deleteOffer } from '@/actions/offers';
 import { Trash2, Plus, CreditCard, CheckCircle, XCircle, Clock, DollarSign, Package } from 'lucide-react';
 
@@ -52,10 +53,12 @@ interface PaymentManagerProps {
   transactions: Transaction[];
   stats: Stats;
   users: User[];
+  stripeEnabled: boolean;
 }
 
-export function PaymentManager({ transactions: initialTransactions, stats, users }: PaymentManagerProps) {
+export function PaymentManager({ transactions: initialTransactions, stats, users, stripeEnabled }: PaymentManagerProps) {
   const [transactions, setTransactions] = useState(initialTransactions);
+  const [providerFilter, setProviderFilter] = useState<string>('ALL');
   const [showAddForm, setShowAddForm] = useState(false);
   const [showOfferForm, setShowOfferForm] = useState(false);
   const [selectedUser, setSelectedUser] = useState('');
@@ -139,6 +142,20 @@ export function PaymentManager({ transactions: initialTransactions, stats, users
     }
   };
 
+  // Révoquer un accès lié à une transaction
+  const handleRevokeAccess = async (accessId: string) => {
+    if (!confirm('Révoquer cet accès ?')) return;
+    setIsLoading(true);
+    const result = await revokeUserAccess(accessId);
+    setIsLoading(false);
+    if (result.success) {
+      toast.success('Accès révoqué');
+      window.location.reload();
+    } else {
+      toast.error(result.error || 'Erreur');
+    }
+  };
+
   // Créer une offre
   const handleCreateOffer = async () => {
     if (!offerName || !offerPrice) {
@@ -165,6 +182,7 @@ export function PaymentManager({ transactions: initialTransactions, stats, users
     PENDING: { label: 'En attente', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
     COMPLETED: { label: 'Complété', color: 'bg-green-100 text-green-800', icon: CheckCircle },
     FAILED: { label: 'Échoué', color: 'bg-red-100 text-red-800', icon: XCircle },
+    CANCELLED: { label: 'Annulé', color: 'bg-gray-100 text-gray-800', icon: XCircle },
     REFUNDED: { label: 'Remboursé', color: 'bg-gray-100 text-gray-800', icon: DollarSign },
   };
 
@@ -199,7 +217,22 @@ export function PaymentManager({ transactions: initialTransactions, stats, users
       </div>
 
       {/* Actions */}
-      <div className="flex justify-end gap-2">
+      <div className="flex justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-600">Provider :</span>
+          <select
+            value={providerFilter}
+            onChange={(e) => setProviderFilter(e.target.value)}
+            className="p-2 border rounded-md"
+          >
+            <option value="ALL">Tous</option>
+            <option value="MANUAL">MANUAL</option>
+            <option value="STRIPE">STRIPE</option>
+            <option value="TWINT">TWINT</option>
+            <option value="MOBILE_MONEY">MOBILE_MONEY</option>
+            <option value="PAYSTACK">PAYSTACK (legacy)</option>
+          </select>
+        </div>
         <Button variant="outline" onClick={() => setShowOfferForm(!showOfferForm)}>
           <Package className="w-4 h-4 mr-2" />
           Nouvelle offre
@@ -342,7 +375,9 @@ export function PaymentManager({ transactions: initialTransactions, stats, users
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map((tx) => {
+                  {transactions
+                    .filter((tx) => providerFilter === 'ALL' || tx.provider === providerFilter)
+                    .map((tx) => {
                     const status = statusConfig[tx.status] || statusConfig.PENDING;
                     return (
                       <tr key={tx.id} className="border-b hover:bg-gray-50">
@@ -364,6 +399,11 @@ export function PaymentManager({ transactions: initialTransactions, stats, users
                           <Badge variant={tx.provider === 'STRIPE' ? 'default' : 'secondary'}>
                             {tx.provider}
                           </Badge>
+                          {tx.providerTxId && (
+                            <p className="text-xs text-gray-500 mt-1 font-mono">
+                              Ref: {tx.providerTxId}
+                            </p>
+                          )}
                         </td>
                         <td className="p-3">
                           <span className={`px-2 py-1 rounded text-sm ${status.color}`}>
@@ -394,6 +434,17 @@ export function PaymentManager({ transactions: initialTransactions, stats, users
                               <CheckCircle className="w-4 h-4" />
                             </Button>
                           )}
+                          {tx.userAccess?.id && tx.userAccess.status === 'ACTIVE' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRevokeAccess(tx.userAccess!.id)}
+                              className="text-orange-600"
+                              title="Révoquer l'accès"
+                            >
+                              <XCircle className="w-4 h-4" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -417,11 +468,21 @@ export function PaymentManager({ transactions: initialTransactions, stats, users
       {/* Note Stripe */}
       <Card className="bg-blue-50 border-blue-200">
         <CardContent className="pt-6">
-          <h4 className="font-semibold text-blue-800">✅ Stripe configuré</h4>
-          <p className="text-sm text-blue-700 mt-1">
-            Les paiements Stripe sont actifs. Les utilisateurs peuvent payer via les offres publiques.
-            Les transactions manuelles nécessitent une validation admin.
-          </p>
+          {stripeEnabled ? (
+            <>
+              <h4 className="font-semibold text-blue-800">✅ Stripe configuré</h4>
+              <p className="text-sm text-blue-700 mt-1">
+                Stripe est activé. Les routes API Stripe sont disponibles.
+              </p>
+            </>
+          ) : (
+            <>
+              <h4 className="font-semibold text-blue-800">ℹ️ Stripe non configuré</h4>
+              <p className="text-sm text-blue-700 mt-1">
+                Stripe est désactivé (feature flag ou clés manquantes). Les paiements Stripe sont indisponibles, sans impacter les transactions manuelles.
+              </p>
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -10,12 +10,18 @@
 
 import { getAuthSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { LiveSessionClient } from '@/components/session/LiveSessionClient';
 import { Suspense } from 'react';
+import { isPusherConfigured } from '@/lib/realtime/pusher';
+import { isProviderEnabled } from '@/lib/payments';
+import { checkUserAccess } from '@/actions/access';
+import { CheckoutOptions } from '@/components/payments/CheckoutOptions';
+
+export const dynamic = 'force-dynamic';
 
 interface SessionPageProps {
   params: Promise<{ id: string }>;
@@ -40,33 +46,77 @@ export default async function SessionPage({ params }: SessionPageProps) {
   const authSession = await getAuthSession();
   
   if (!authSession?.user?.id) {
-    redirect(`/auth/login?callbackUrl=/session/${id}`);
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4">
+        <div className="w-full max-w-md bg-gray-800 border border-gray-700 rounded-xl p-6 text-center space-y-4">
+          <h1 className="text-xl font-bold text-white">Connexion requise</h1>
+          <p className="text-sm text-gray-300">
+            Votre session n&apos;a pas pu être chargée. Connectez-vous pour rejoindre la session.
+          </p>
+          <div className="flex justify-center gap-3 pt-2">
+            <Link href={`/auth/login?callbackUrl=/session/${id}`}>
+              <Button>Se connecter</Button>
+            </Link>
+            <Link href="/sessions">
+              <Button variant="outline" className="text-gray-200 border-gray-600 hover:bg-gray-700">
+                Retour
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
   }
   
   // Récupérer la session live avec participants
-  const liveSession = await prisma.session.findUnique({
-    where: { id },
-    include: {
-      coach: { 
-        select: { 
-          id: true, 
-          name: true, 
-          avatar: true 
-        } 
+  let liveSession: any = null;
+  try {
+    liveSession = await prisma.session.findUnique({
+      where: { id },
+      include: {
+        coach: {
+          select: {
+            id: true,
+            name: true,
+            avatar: true,
+          },
+        },
+        participants: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                avatar: true,
+              },
+            },
+          },
+        },
       },
-      participants: {
-        include: {
-          user: { 
-            select: { 
-              id: true, 
-              name: true, 
-              avatar: true 
-            } 
-          }
-        }
-      }
-    }
-  }).catch(() => null);
+    });
+  } catch (error) {
+    console.error('[SESSION] Failed to load session', { id, error });
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4">
+        <div className="w-full max-w-md bg-gray-800 border border-gray-700 rounded-xl p-6 text-center space-y-4">
+          <h1 className="text-xl font-bold text-white">Erreur de chargement</h1>
+          <p className="text-sm text-gray-300">
+            Impossible de charger cette session pour le moment. Réessayez.
+          </p>
+          <div className="flex justify-center gap-3 pt-2">
+            <Link href={`/session/${id}`}>
+              <Button>Réessayer</Button>
+            </Link>
+            <Link href="/sessions">
+              <Button variant="outline" className="text-gray-200 border-gray-600 hover:bg-gray-700">
+                Retour
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!liveSession) {
     notFound();
@@ -75,16 +125,66 @@ export default async function SessionPage({ params }: SessionPageProps) {
   // Vérifier l'accès
   const isCoach = liveSession.coachId === authSession.user.id;
   const isAdmin = authSession.user.role === 'SUPER_ADMIN';
-  const isParticipant = liveSession.participants.some(
-    (p) => p.userId === authSession.user.id
-  );
-  
-  // Accès autorisé si: coach, admin, participant inscrit, ou session publique LIVE
-  const hasAccess = isCoach || isAdmin || isParticipant || 
+  const accessCheck = await checkUserAccess(authSession.user.id, liveSession.id);
+  const hasAccess =
+    isCoach ||
+    isAdmin ||
+    accessCheck.hasAccess ||
     (liveSession.isPublic && liveSession.status === 'LIVE');
 
   if (!hasAccess) {
-    notFound();
+    // Visible fallback UI (never a blank screen)
+    const offers = await prisma.offer.findMany({
+      where: { isActive: true, OR: [{ sessionId: liveSession.id }, { sessionId: null }] },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, name: true, description: true, price: true, currency: true },
+    }).catch((error) => {
+      console.error('[SESSION] Failed to load offers', { id: liveSession.id, error });
+      return [];
+    });
+
+    const stripeEnabled = isProviderEnabled('STRIPE');
+    const twintEnabled = isProviderEnabled('TWINT');
+    const mobileMoneyEnabled = isProviderEnabled('MOBILE_MONEY');
+
+    return (
+      <div className="min-h-screen bg-gray-900" data-testid="session-page-no-access">
+        <header className="bg-gray-800 border-b border-gray-700">
+          <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+            <Link href="/sessions">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-gray-300 hover:text-white"
+                data-testid="back-button"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Retour
+              </Button>
+            </Link>
+            <div className="text-right">
+              <h1 className="text-lg font-bold text-white">{liveSession.title}</h1>
+              <p className="text-sm text-gray-400">Accès requis</p>
+            </div>
+          </div>
+        </header>
+
+        <main className="container mx-auto px-4 py-6 space-y-4">
+          <div className="rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-900">
+            Vous n&apos;avez pas accès à cette session. Sélectionnez une offre pour acheter l&apos;accès.
+          </div>
+
+          <CheckoutOptions
+            offers={offers}
+            enabledProviders={{
+              STRIPE: stripeEnabled,
+              TWINT: twintEnabled,
+              MOBILE_MONEY: mobileMoneyEnabled,
+            }}
+          />
+        </main>
+      </div>
+    );
   }
 
   return (
@@ -124,6 +224,7 @@ export default async function SessionPage({ params }: SessionPageProps) {
             participants={liveSession.participants}
             currentUserId={authSession.user.id}
             currentUserRole={authSession.user.role}
+            realtimeEnabled={process.env.ENABLE_LIVE === 'true' && isPusherConfigured()}
           />
         </Suspense>
       </main>

@@ -88,8 +88,14 @@ export async function POST(request: NextRequest) {
         }
       }
       
-      // Log l'accès
-      console.log(`[PUSHER AUTH] ${session.user.name} (${session.user.role}) → ${channelName}`);
+      // Log JOIN (server-side)
+      console.info('[LIVE][JOIN] pusher auth', {
+        sessionId,
+        channel: channelName,
+        userId: session.user.id,
+        role: session.user.role,
+        socketId,
+      });
     }
     
     // 5. Déterminer le rôle dans la session

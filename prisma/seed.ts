@@ -68,6 +68,8 @@ async function main() {
     { key: 'default_language', value: 'FR', category: 'GENERAL' },
     { key: 'max_session_participants', value: '50', category: 'GENERAL' },
     { key: 'enable_registration', value: 'true', category: 'GENERAL' },
+    // Platform commission percent on participant payments (0-100)
+    { key: 'platform_commission_percent', value: '20', category: 'GENERAL' },
   ];
 
   for (const setting of generalSettings) {
@@ -233,6 +235,44 @@ async function main() {
   });
 
   console.log('✅ Utilisateurs de démo créés:', coach.email, participant.email);
+
+  // ========================================
+  // 6b. COACH SUBSCRIPTION (DEV SEED)
+  // ========================================
+  // This is NOT a payment simulation; it seeds a usable environment for local testing.
+  // In production, subscription is created/updated only via Stripe webhooks.
+  const now = new Date();
+  const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  await prisma.coachSubscription.upsert({
+    where: { providerSubscriptionId: 'seed-demo-subscription' },
+    update: {
+      userId: coach.id,
+      status: 'ACTIVE',
+      provider: 'STRIPE',
+      currentPeriodStart: now,
+      currentPeriodEnd: periodEnd,
+    },
+    create: {
+      userId: coach.id,
+      status: 'ACTIVE',
+      provider: 'STRIPE',
+      providerSubscriptionId: 'seed-demo-subscription',
+      currentPeriodStart: now,
+      currentPeriodEnd: periodEnd,
+    },
+  });
+
+  await prisma.coachBalance.upsert({
+    where: { coachId: coach.id },
+    update: {},
+    create: {
+      coachId: coach.id,
+      availableAmount: 0,
+      pendingAmount: 0,
+      totalEarned: 0,
+      currency: 'CHF',
+    },
+  });
 
   // ========================================
   // 7. SESSION DE DÉMONSTRATION (OPTIONNEL)

@@ -10,29 +10,66 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Calendar, Users, Play, Clock } from 'lucide-react';
 
+export const dynamic = 'force-dynamic';
+
 export default async function SessionsPage() {
   const session = await getAuthSession();
 
-  // Si pas de session, le middleware redirige déjà
   if (!session) {
-    return null;
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <header className="bg-white border-b border-gray-200">
+          <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Sessions</h1>
+              <p className="text-sm text-gray-500">Connexion requise</p>
+            </div>
+            <Link href="/"><Button variant="outline">Accueil</Button></Link>
+          </div>
+        </header>
+
+        <main className="container mx-auto px-4 py-8">
+          <Card className="max-w-lg mx-auto text-center">
+            <CardHeader>
+              <CardTitle>Connectez-vous pour accéder aux sessions</CardTitle>
+              <CardDescription>
+                Votre session n&apos;a pas pu être chargée. Vous pouvez vous reconnecter sans perdre la page.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex justify-center">
+              <Link href="/auth/login?callbackUrl=/sessions">
+                <Button>Se connecter</Button>
+              </Link>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    );
   }
 
-  const sessions = await prisma.session.findMany({
-    where: {
-      OR: [
-        { status: 'LIVE' },
-        { status: 'SCHEDULED' },
-        { participants: { some: { userId: session.user.id } } },
-        { coachId: session.user.id }
-      ]
-    },
-    include: {
-      coach: { select: { name: true } },
-      _count: { select: { participants: true } }
-    },
-    orderBy: [{ status: 'asc' }, { scheduledAt: 'asc' }]
-  }).catch(() => []);
+  let sessions: any[] = [];
+  let sessionsLoadError: string | null = null;
+  try {
+    sessions = await prisma.session.findMany({
+      where: {
+        OR: [
+          { status: 'LIVE' },
+          { status: 'SCHEDULED' },
+          { participants: { some: { userId: session.user.id } } },
+          { coachId: session.user.id },
+        ],
+      },
+      include: {
+        coach: { select: { name: true } },
+        _count: { select: { participants: true } },
+      },
+      orderBy: [{ status: 'asc' }, { scheduledAt: 'asc' }],
+    });
+  } catch (error) {
+    console.error('[SESSIONS] Failed to load sessions', error);
+    sessionsLoadError = 'Impossible de charger les sessions pour le moment.';
+    sessions = [];
+  }
 
   const statusLabels: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
     LIVE: { label: 'En direct', variant: 'destructive' },
@@ -54,6 +91,19 @@ export default async function SessionsPage() {
       </header>
 
       <main className="container mx-auto px-4 py-8">
+        {sessionsLoadError && (
+          <Card className="max-w-2xl mx-auto mb-6 border border-red-200">
+            <CardHeader>
+              <CardTitle>Erreur de chargement</CardTitle>
+              <CardDescription>{sessionsLoadError}</CardDescription>
+            </CardHeader>
+            <CardContent className="flex justify-center">
+              <Link href="/sessions">
+                <Button>Réessayer</Button>
+              </Link>
+            </CardContent>
+          </Card>
+        )}
         {sessions.length === 0 ? (
           <Card className="max-w-lg mx-auto text-center">
             <CardHeader>

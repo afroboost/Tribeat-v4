@@ -1,12 +1,12 @@
 'use client';
 
 /**
- * Page de Connexion - DEBUG VERSION
- * Affiche clairement l'état auth et les erreurs
+ * Page de Connexion
+ * Objectif: login stable (tous rôles) + redirection fiable + pas de debug en prod
  */
 
-import { Suspense, useState, useEffect } from 'react';
-import { signIn, useSession } from 'next-auth/react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { getSession, signIn, useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 
 const loginSchema = z.object({
   email: z.string().email('Email invalide'),
@@ -26,6 +26,22 @@ const loginSchema = z.object({
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 
+const redirectByRole: Record<string, string> = {
+  SUPER_ADMIN: '/admin/dashboard',
+  COACH: '/coach/dashboard',
+  PARTICIPANT: '/sessions',
+};
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -33,24 +49,19 @@ function LoginForm() {
   
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState<string | null>(null);
 
-  const callbackUrl = searchParams.get('callbackUrl') || '/sessions';
-
-  // DEBUG: Afficher l'état de session
-  useEffect(() => {
-    console.log('[LOGIN PAGE] Session status:', status);
-    console.log('[LOGIN PAGE] Session data:', session);
-    console.log('[LOGIN PAGE] CallbackUrl:', callbackUrl);
-  }, [session, status, callbackUrl]);
+  const callbackUrl = useMemo(() => searchParams.get('callbackUrl') || '', [searchParams]);
+  const defaultRedirect = useMemo(() => {
+    const role = session?.user?.role ? String(session.user.role) : '';
+    return redirectByRole[role] || '/sessions';
+  }, [session?.user?.role]);
 
   // Si déjà connecté, rediriger
   useEffect(() => {
     if (status === 'authenticated' && session) {
-      console.log('[LOGIN PAGE] Déjà authentifié, redirection vers:', callbackUrl);
-      router.push(callbackUrl);
+      router.replace(callbackUrl || defaultRedirect);
     }
-  }, [status, session, callbackUrl, router]);
+  }, [status, session, callbackUrl, defaultRedirect, router]);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -60,22 +71,20 @@ function LoginForm() {
   async function onSubmit(values: LoginFormValues) {
     setIsLoading(true);
     setError(null);
-    setDebugInfo(null);
-
-    console.log('[LOGIN] Tentative avec:', values.email);
 
     try {
-      const result = await signIn('credentials', {
+      // Éviter tout "hang" silencieux (réseau/NextAuth misconfig)
+      const result = await withTimeout(
+        signIn('credentials', {
         email: values.email,
         password: values.password,
         redirect: false,
-      });
-
-      console.log('[LOGIN] Résultat signIn:', result);
-      setDebugInfo(JSON.stringify(result, null, 2));
+        }),
+        15000,
+        'La connexion a expiré (timeout). Vérifiez votre connexion et réessayez.'
+      );
 
       if (result?.error) {
-        console.error('[LOGIN] Erreur:', result.error);
         setError(result.error === 'CredentialsSignin' 
           ? 'Email ou mot de passe incorrect' 
           : result.error);
@@ -84,21 +93,34 @@ function LoginForm() {
       }
 
       if (result?.ok) {
-        console.log('[LOGIN] SUCCESS - Redirection vers:', callbackUrl);
         toast.success('Connexion réussie');
-        
-        // Forcer le refresh avant redirection
+
+        // Récupérer la session fraîche (évite les états incohérents au refresh)
+        const nextSession = await withTimeout(
+          getSession(),
+          8000,
+          'Connexion réussie, mais la session n’a pas pu être chargée. Rechargez la page et réessayez.'
+        );
+        if (!nextSession?.user?.role) {
+          setError('Connexion réussie, mais aucun rôle n’a été trouvé dans la session.');
+          toast.error('Session invalide');
+          return;
+        }
+        const role = nextSession?.user?.role ? String(nextSession.user.role) : '';
+        const roleTarget = redirectByRole[role] || '/sessions';
+
+        // callbackUrl (si présent) a priorité
+        router.replace(callbackUrl || roleTarget);
         router.refresh();
-        
-        // Petite pause pour laisser le cookie s'installer
-        setTimeout(() => {
-          router.push(callbackUrl);
-        }, 500);
+        return;
       }
+
+      // NextAuth peut retourner ok=false sans error explicit
+      setError('Connexion impossible. Vérifiez vos identifiants et réessayez.');
+      toast.error('Échec de la connexion');
     } catch (err) {
-      console.error('[LOGIN] Exception:', err);
-      setError('Une erreur est survenue');
-      setDebugInfo(String(err));
+      const message = err instanceof Error ? err.message : 'Une erreur est survenue';
+      setError(message);
       toast.error('Erreur de connexion');
     } finally {
       setIsLoading(false);
@@ -107,29 +129,6 @@ function LoginForm() {
 
   return (
     <div className="w-full max-w-md">
-      {/* DEBUG BANNER */}
-      <div className="mb-4 p-3 bg-gray-800 rounded-lg text-xs font-mono">
-        <div className="flex items-center gap-2 mb-2">
-          {status === 'loading' && <Loader2 className="w-4 h-4 animate-spin text-yellow-500" />}
-          {status === 'authenticated' && <CheckCircle className="w-4 h-4 text-green-500" />}
-          {status === 'unauthenticated' && <XCircle className="w-4 h-4 text-red-500" />}
-          <span className="text-white">Status: <span className={
-            status === 'authenticated' ? 'text-green-400' :
-            status === 'loading' ? 'text-yellow-400' : 'text-red-400'
-          }>{status}</span></span>
-        </div>
-        {session && (
-          <div className="text-green-400">
-            User: {session.user?.email} ({session.user?.role})
-          </div>
-        )}
-        {debugInfo && (
-          <pre className="text-gray-400 text-xs mt-2 overflow-auto max-h-20">
-            {debugInfo}
-          </pre>
-        )}
-      </div>
-
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-8 space-y-6">
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Connexion</h1>
@@ -141,6 +140,15 @@ function LoginForm() {
             <AlertTriangle className="w-4 h-4" />
             <AlertDescription>{error}</AlertDescription>
           </Alert>
+        )}
+
+        {status === 'loading' && (
+          <div className="flex items-center gap-3 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              Chargement de votre session…
+            </p>
+          </div>
         )}
 
         <Form {...form}>
@@ -155,7 +163,7 @@ function LoginForm() {
                     <Input
                       type="email"
                       placeholder="admin@tribeat.com"
-                      disabled={isLoading}
+                      disabled={isLoading || status === 'loading'}
                       data-testid="login-email-input"
                       {...field}
                     />
@@ -175,7 +183,7 @@ function LoginForm() {
                     <Input
                       type="password"
                       placeholder="Admin123!"
-                      disabled={isLoading}
+                      disabled={isLoading || status === 'loading'}
                       data-testid="login-password-input"
                       {...field}
                     />
@@ -203,14 +211,9 @@ function LoginForm() {
           </form>
         </Form>
 
-        {/* Comptes de test */}
-        <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Comptes de test :</p>
-          <div className="space-y-1 text-xs text-gray-400">
-            <div>Admin: admin@tribeat.com / Admin123!</div>
-            <div>Coach: coach@tribeat.com / Demo123!</div>
-          </div>
-        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          En cas de problème de session (refresh), reconnectez-vous via cette page.
+        </p>
       </div>
 
       <div className="text-center mt-6">

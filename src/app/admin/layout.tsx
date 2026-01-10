@@ -8,6 +8,8 @@ import { ReactNode, Suspense } from 'react';
 import { AdminShell } from '@/components/admin/AdminShell';
 import { AdminSkeleton } from '@/components/admin/AdminSkeleton';
 
+export const dynamic = 'force-dynamic';
+
 export default function AdminLayout({ children }: { children: ReactNode }) {
   // Layout STATIQUE - render immédiat
   // Le middleware a déjà vérifié l'auth et redirigé si nécessaire

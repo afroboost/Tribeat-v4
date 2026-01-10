@@ -54,6 +54,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const userId = session.user.id;
     const userRole = session.user.role;
     
+    console.info('[LIVE][EVENT] incoming', { sessionId, userId, userRole });
+
     // 2. Vérifier que la session existe
     const liveSession = await prisma.session.findUnique({
       where: { id: sessionId },
@@ -86,6 +88,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json(
         { error: 'Type d\'événement invalide', code: 'INVALID_TYPE' },
         { status: 400 }
+      );
+    }
+
+    // 4bis. Statut session: ne pas accepter de contrôle si pas LIVE
+    // (on autorise "end" pour nettoyer même en cas d'état incohérent)
+    if (type !== 'end' && liveSession.status !== 'LIVE') {
+      return NextResponse.json(
+        { error: 'La session n\'est pas en direct', code: 'INVALID_SESSION_STATUS' },
+        { status: 409 }
       );
     }
     
@@ -125,6 +136,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         newState = { sessionId, isPlaying: false, currentTime: 0, volume: 80 };
         break;
     }
+
+    console.info('[LIVE][EVENT] persisted', { sessionId, type, by: userId });
     
     // 6. BROADCAST VIA PUSHER
     if (isPusherConfigured()) {
@@ -147,13 +160,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       
       await pusher.trigger(channelName, eventName, eventData);
       
-      console.log(`[LIVE] ${type.toUpperCase()} broadcast to ${channelName}`, {
+      console.info('[LIVE][EVENT] broadcast', {
         sessionId,
-        userId,
-        latency: Date.now() - startTime,
+        type,
+        channel: channelName,
+        by: userId,
+        latencyMs: Date.now() - startTime,
       });
     } else {
-      console.warn('[LIVE] Pusher non configuré - broadcast désactivé');
+      console.warn('[LIVE][EVENT] pusher not configured - broadcast skipped', { sessionId, type });
     }
     
     // 7. Réponse avec métriques
@@ -182,6 +197,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { sessionId } = await params;
+    const reason = request.nextUrl.searchParams.get('reason') || 'resync';
     
     // Auth obligatoire
     const session = await getServerSession(authOptions);
@@ -201,6 +217,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         status: true,
         title: true,
         mediaUrl: true,
+        isPublic: true,
       },
     });
     
@@ -209,6 +226,36 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         { error: 'Session introuvable', code: 'NOT_FOUND' },
         { status: 404 }
       );
+    }
+
+    // Vérifier l'accès (coach/admin, participant inscrit, ou session publique LIVE)
+    const isCoach = liveSession.coachId === session.user.id;
+    const isAdmin = session.user.role === 'SUPER_ADMIN';
+    const isPublicLive = liveSession.isPublic && liveSession.status === 'LIVE';
+
+    console.info('[LIVE][STATE]', {
+      reason,
+      sessionId,
+      userId: session.user.id,
+      role: session.user.role,
+      coach: isCoach,
+      admin: isAdmin,
+    });
+
+    if (!isCoach && !isAdmin && !isPublicLive) {
+      const isParticipant = await prisma.sessionParticipant.findUnique({
+        where: {
+          userId_sessionId: { userId: session.user.id, sessionId },
+        },
+        select: { id: true },
+      });
+
+      if (!isParticipant) {
+        return NextResponse.json(
+          { error: 'Accès non autorisé à cette session', code: 'FORBIDDEN' },
+          { status: 403 }
+        );
+      }
     }
     
     // Récupérer l'état persisté

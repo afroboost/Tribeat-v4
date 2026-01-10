@@ -18,6 +18,7 @@ interface ParticipantPlayerProps {
   audioState: AudioEngineState | null;
   volume: number;
   sessionTitle?: string;
+  syncAvailable?: boolean;
 }
 
 export function ParticipantPlayer({
@@ -25,6 +26,7 @@ export function ParticipantPlayer({
   audioState,
   volume,
   sessionTitle,
+  syncAvailable = true,
 }: ParticipantPlayerProps) {
   
   const currentTime = audioState?.currentTime || 0;
@@ -98,7 +100,7 @@ export function ParticipantPlayer({
         <div className="flex items-center justify-center gap-2 py-2 px-4 bg-gray-900/50 rounded-lg">
           <Lock className="w-4 h-4 text-gray-500" />
           <span className="text-sm text-gray-400">
-            Synchronisé avec le coach
+            {syncAvailable ? 'Synchronisé avec le coach' : 'Synchronisation indisponible'}
           </span>
         </div>
         

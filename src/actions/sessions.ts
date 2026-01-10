@@ -15,6 +15,7 @@ import { prisma } from '@/lib/prisma';
 import { isCoachOrAdmin, getAuthSession } from '@/lib/auth';
 import { z } from 'zod';
 import { SessionStatus, MediaType } from '@prisma/client';
+import { canActAsCoach } from '@/lib/coach-guards';
 
 // ========================================
 // VALIDATION
@@ -105,6 +106,15 @@ export async function createSession(data: z.infer<typeof sessionSchema>) {
       return { success: false, error: 'Non autorisé' };
     }
 
+    // Additional guard: COACH must have an active subscription
+    const auth = await getAuthSession();
+    if (auth?.user?.role === 'COACH') {
+      const ok = await canActAsCoach(auth.user.id);
+      if (!ok) {
+        return { success: false, error: 'Abonnement coach requis' };
+      }
+    }
+
     // Validation
     const validatedData = sessionSchema.parse(data);
 
@@ -170,6 +180,13 @@ export async function updateSession(id: string, data: Partial<z.infer<typeof ses
       return { success: false, error: 'Non autorisé' };
     }
 
+    if (isOwner && session.user.role === 'COACH') {
+      const ok = await canActAsCoach(session.user.id);
+      if (!ok) {
+        return { success: false, error: 'Abonnement coach requis' };
+      }
+    }
+
     // Conversion date si nécessaire
     const updateData: any = { ...data };
     if (data.scheduledAt) {
@@ -226,6 +243,13 @@ export async function deleteSession(id: string) {
       return { success: false, error: 'Non autorisé' };
     }
 
+    if (isOwner && session.user.role === 'COACH') {
+      const ok = await canActAsCoach(session.user.id);
+      if (!ok) {
+        return { success: false, error: 'Abonnement coach requis' };
+      }
+    }
+
     // Suppression (cascade défini dans Prisma)
     await prisma.session.delete({
       where: { id },
@@ -270,6 +294,13 @@ export async function startSession(id: string) {
 
     if (!isOwner && !isAdmin) {
       return { success: false, error: 'Non autorisé' };
+    }
+
+    if (isOwner && session.user.role === 'COACH') {
+      const ok = await canActAsCoach(session.user.id);
+      if (!ok) {
+        return { success: false, error: 'Abonnement coach requis' };
+      }
     }
 
     if (existingSession.status === 'LIVE') {
@@ -323,6 +354,13 @@ export async function endSessionAction(id: string) {
 
     if (!isOwner && !isAdmin) {
       return { success: false, error: 'Non autorisé' };
+    }
+
+    if (isOwner && session.user.role === 'COACH') {
+      const ok = await canActAsCoach(session.user.id);
+      if (!ok) {
+        return { success: false, error: 'Abonnement coach requis' };
+      }
     }
 
     const updatedSession = await prisma.session.update({

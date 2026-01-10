@@ -12,31 +12,51 @@ type PaymentStatus = 'loading' | 'success' | 'pending' | 'failed';
 export function CheckoutSuccessContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const sessionId = searchParams.get('session_id');
+  const transactionId = searchParams.get('tx');
+  const legacySessionId = searchParams.get('session_id');
   
   const [status, setStatus] = useState<PaymentStatus>('loading');
   const [attempts, setAttempts] = useState(0);
   const maxAttempts = 10;
 
   useEffect(() => {
-    if (!sessionId) {
+    const tx = transactionId;
+    if (!tx && !legacySessionId) {
       setStatus('failed');
       return;
     }
 
     const pollStatus = async () => {
       try {
-        const response = await fetch(`/api/checkout/status/${sessionId}`);
-        const data = await response.json();
-
-        if (data.paymentStatus === 'paid') {
-          setStatus('success');
-          return;
-        }
-
-        if (data.status === 'expired' || data.status === 'canceled') {
-          setStatus('failed');
-          return;
+        // New flow: poll by internal transaction id (provider-agnostic)
+        if (tx) {
+          const response = await fetch(`/api/checkout/transaction/${tx}`);
+          const data = await response.json();
+          if (!response.ok) {
+            setStatus('failed');
+            return;
+          }
+          if (data.transaction?.status === 'COMPLETED' && data.access?.status === 'ACTIVE') {
+            setStatus('success');
+            return;
+          }
+          if (data.transaction?.status === 'FAILED' || data.transaction?.status === 'CANCELLED') {
+            setStatus('failed');
+            return;
+          }
+        } else if (legacySessionId) {
+          // Legacy stripe flow: keep compatibility (no access grant here)
+          const response = await fetch(`/api/checkout/status/${legacySessionId}`);
+          const data = await response.json();
+          if (data.paymentStatus === 'paid') {
+            // Success page can show pending if access isn't granted yet (webhook-only rule)
+            setStatus('pending');
+            return;
+          }
+          if (data.status === 'expired' || data.status === 'canceled') {
+            setStatus('failed');
+            return;
+          }
         }
 
         // Continuer le polling
@@ -52,7 +72,7 @@ export function CheckoutSuccessContent() {
     };
 
     pollStatus();
-  }, [sessionId, attempts]);
+  }, [transactionId, legacySessionId, attempts]);
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">

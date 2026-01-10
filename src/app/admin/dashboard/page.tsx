@@ -5,6 +5,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { prisma } from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AdminDashboardPage() {
   // Récupérer les stats
   const [userCount, sessionCount, settingsCount, translationsCount] = await Promise.all([
