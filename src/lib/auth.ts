@@ -6,6 +6,7 @@
 import { UserRole } from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/authConfig';
+import { requireCoachEntitlement } from '@/lib/access-control';
 
 /**
  * Redirections par rôle - CENTRALISÉ
@@ -60,7 +61,14 @@ export async function isSuperAdmin(): Promise<boolean> {
  */
 export async function isCoachOrAdmin(): Promise<boolean> {
   const session = await getAuthSession();
-  return session?.user?.role === 'COACH' || session?.user?.role === 'SUPER_ADMIN';
+  if (!session?.user) return false;
+  if (session.user.role === 'SUPER_ADMIN') return true;
+  if (session.user.role !== 'COACH') return false;
+  const entitlement = await requireCoachEntitlement({
+    coachId: session.user.id,
+    userRole: session.user.role,
+  });
+  return entitlement.allowed;
 }
 
 /**

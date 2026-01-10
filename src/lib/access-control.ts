@@ -86,6 +86,24 @@ export async function requireCoachEntitlement(opts: {
 
   if (freeGrant) return { allowed: true, reason: 'admin_free_grant' };
 
+  // Promo-based entitlement: any redemption by this user with an active, non-expired promo code
+  // and a completed transaction (idempotent / validated).
+  const promo = await prisma.promoRedemption.findFirst({
+    where: {
+      userId: coachId,
+      promoCode: {
+        active: true,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      transaction: {
+        status: 'COMPLETED',
+      },
+    },
+    select: { id: true },
+  });
+
+  if (promo) return { allowed: true, reason: 'promo_entitlement' };
+
   return { allowed: false, reason: 'no_entitlement' };
 }
 

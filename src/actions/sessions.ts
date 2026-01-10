@@ -114,7 +114,7 @@ export async function createSession(data: z.infer<typeof sessionSchema>) {
         userRole: authSession.user.role,
       });
       if (!entitlement.allowed) {
-        return { success: false, error: 'Abonnement coach requis' };
+        return { success: false, error: 'Accès coach requis' };
       }
     }
 
@@ -181,6 +181,17 @@ export async function updateSession(id: string, data: Partial<z.infer<typeof ses
 
     if (!isOwner && !isAdmin) {
       return { success: false, error: 'Non autorisé' };
+    }
+
+    // If acting as COACH (owner), require entitlement (SUPER_ADMIN bypass already handled)
+    if (isOwner && session.user.role === 'COACH') {
+      const entitlement = await requireCoachEntitlement({
+        coachId: session.user.id,
+        userRole: session.user.role,
+      });
+      if (!entitlement.allowed) {
+        return { success: false, error: 'Accès coach requis' };
+      }
     }
 
     // Conversion date si nécessaire
@@ -268,6 +279,17 @@ export async function deleteSession(id: string) {
       return { success: false, error: 'Non autorisé' };
     }
 
+    // If acting as COACH (owner), require entitlement (SUPER_ADMIN bypass already handled)
+    if (isOwner && session.user.role === 'COACH') {
+      const entitlement = await requireCoachEntitlement({
+        coachId: session.user.id,
+        userRole: session.user.role,
+      });
+      if (!entitlement.allowed) {
+        return { success: false, error: 'Accès coach requis' };
+      }
+    }
+
     // Suppression (cascade défini dans Prisma)
     await prisma.session.delete({
       where: { id },
@@ -306,7 +328,7 @@ export async function startSession(id: string) {
         userRole: session.user.role,
       });
       if (!entitlement.allowed) {
-        return { success: false, error: 'Abonnement coach requis' };
+        return { success: false, error: 'Accès coach requis' };
       }
     }
 
@@ -361,6 +383,17 @@ export async function endSessionAction(id: string) {
     const session = await getAuthSession();
     if (!session) {
       return { success: false, error: 'Non authentifié' };
+    }
+
+    // Enforce coach entitlement (subscription OR admin free-grant OR SUPER_ADMIN)
+    if (session.user.role === 'COACH') {
+      const entitlement = await requireCoachEntitlement({
+        coachId: session.user.id,
+        userRole: session.user.role,
+      });
+      if (!entitlement.allowed) {
+        return { success: false, error: 'Accès coach requis' };
+      }
     }
 
     const existingSession = await prisma.session.findUnique({

@@ -4,6 +4,7 @@
  */
 
 import { getAuthSession } from '@/lib/auth';
+import { requireCoachEntitlement } from '@/lib/access-control';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,17 @@ export default async function CoachDashboardPage() {
 
   if (!session || (session.user.role !== 'COACH' && session.user.role !== 'SUPER_ADMIN')) {
     redirect('/403');
+  }
+
+  // Normalize: COACH role requires entitlement; SUPER_ADMIN bypass
+  if (session.user.role === 'COACH') {
+    const entitlement = await requireCoachEntitlement({
+      coachId: session.user.id,
+      userRole: session.user.role,
+    });
+    if (!entitlement.allowed) {
+      redirect('/403');
+    }
   }
 
   return (
