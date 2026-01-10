@@ -1,6 +1,6 @@
 /**
  * NextAuth.js Configuration Options
- * CORRIGÉ pour environnement proxy (Emergent/Vercel)
+ * Compatible Vercel / Proxy / TypeScript strict
  */
 
 import { AuthOptions } from 'next-auth';
@@ -17,7 +17,6 @@ export const authOptions: AuthOptions = {
     maxAge: 30 * 24 * 60 * 60,
   },
 
-  // COOKIES CORRIGÉS pour environnement proxy
   cookies: {
     sessionToken: {
       name: 'next-auth.session-token',
@@ -54,16 +53,13 @@ export const authOptions: AuthOptions = {
 
   providers: [
     CredentialsProvider({
-      name: 'credentials',
+      name: 'Credentials',
       credentials: {
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        console.log('[AUTH] Tentative login:', credentials?.email);
-        
         if (!credentials?.email || !credentials?.password) {
-          console.log('[AUTH] Identifiants manquants');
           throw new Error('Identifiants manquants');
         }
 
@@ -72,19 +68,18 @@ export const authOptions: AuthOptions = {
         });
 
         if (!user || !user.password) {
-          console.log('[AUTH] User non trouvé:', credentials.email);
           throw new Error('Email ou mot de passe incorrect');
         }
 
-        const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
+        const isValid = await bcrypt.compare(
+          credentials.password,
+          user.password
+        );
 
-        if (!isPasswordValid) {
-          console.log('[AUTH] Mot de passe invalide pour:', credentials.email);
+        if (!isValid) {
           throw new Error('Email ou mot de passe incorrect');
         }
 
-        console.log('[AUTH] Login SUCCESS:', user.email, user.role);
-        
         return {
           id: user.id,
           email: user.email,
@@ -102,25 +97,18 @@ export const authOptions: AuthOptions = {
         token.email = user.email;
         token.name = user.name;
         token.role = user.role;
-        console.log('[AUTH] JWT créé pour:', user.email);
       }
       return token;
     },
 
     async session({ session, token }) {
-      if (token && session.user) {
+      if (session.user && token) {
         session.user.id = token.id as string;
         session.user.email = token.email as string;
         session.user.name = token.name as string;
-        session.user.role = token.role;
+        session.user.role = token.role as string;
       }
       return session;
     },
   },
-
-  secret: process.env.NEXTAUTH_SECRET,
-  debug: true, // ACTIVÉ pour debug
-  
-  // Trust proxy headers
-  trustHost: true,
 };
