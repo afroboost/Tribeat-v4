@@ -271,14 +271,48 @@ model CoachWallet {
 }
 
 model PlatformWallet {
-  id              String   @id @default(cuid())
+  // Singleton
+  id              String   @id @default("platform")
   balance         Int      @default(0) // cents
   commissionTotal Int      @default(0) // cents
   currency        String   @default("CHF")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
 
-  @@index([currency])
+enum WalletOwnerType {
+  PLATFORM
+  COACH
+}
+
+enum WalletLedgerSource {
+  SESSION_PAYMENT
+  SUBSCRIPTION
+  MANUAL
+}
+
+enum WalletLedgerDirection {
+  CREDIT
+  DEBIT
+}
+
+model WalletLedger {
+  id          String                @id @default(cuid())
+  ownerType   WalletOwnerType
+  ownerId     String
+  source      WalletLedgerSource
+  direction   WalletLedgerDirection
+  amount      Int // cents
+  currency    String                @default("CHF")
+  referenceId String
+  createdAt   DateTime              @default(now())
+
+  // Hard idempotence for ledger entries per reference
+  @@unique([ownerType, ownerId, source, direction, referenceId])
+  @@index([ownerType, ownerId])
+  @@index([source])
+  @@index([referenceId])
+  @@index([createdAt])
 }
 
 enum SessionPaymentStatus {

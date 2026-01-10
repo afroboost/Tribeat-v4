@@ -9,6 +9,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { stripe, STRIPE_WEBHOOK_SECRET } from '@/lib/stripe';
 import { prisma } from '@/lib/prisma';
 import Stripe from 'stripe';
+import { computeSplit, recordSessionPaymentSettlement } from '@/lib/wallet/walletService';
+import { Prisma } from '@prisma/client';
 
 export async function POST(request: NextRequest) {
   try {
@@ -87,17 +89,6 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  // Idempotence: on considère "wallet traité" si un SessionPayment existe déjà
-  const existingPayment = await prisma.sessionPayment.findUnique({
-    where: { transactionId },
-    select: { id: true },
-  });
-
-  if (existingPayment) {
-    console.log('[WEBHOOK] SessionPayment already exists - skipping');
-    return;
-  }
-
   await prisma.$transaction(async (tx) => {
     // Charger transaction + offer/session pour split
     const existingTransaction = await tx.transaction.findUnique({
@@ -153,79 +144,44 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     const amount = existingTransaction.amount;
     const currency = existingTransaction.currency;
 
-    // Commission: env percent, default 20%
-    const percentRaw = process.env.PLATFORM_COMMISSION_PERCENT;
-    const parsedPercent = percentRaw ? Number(percentRaw) : NaN;
-    const platformPercent =
-      Number.isFinite(parsedPercent) && parsedPercent >= 0 && parsedPercent <= 100 ? parsedPercent : 20;
-    const platformCut = Math.round((amount * platformPercent) / 100);
-    const coachCut = amount - platformCut;
-
-    // Platform wallet (singleton-ish): one per currency
-    const platformWallet = await tx.platformWallet.findFirst({
-      where: { currency },
-      select: { id: true },
-    });
-    const platformWalletId = platformWallet?.id;
-
-    if (platformWalletId) {
-      await tx.platformWallet.update({
-        where: { id: platformWalletId },
-        data: {
-          balance: { increment: platformCut },
-          commissionTotal: { increment: platformCut },
-        },
-      });
-    } else {
-      await tx.platformWallet.create({
-        data: {
-          currency,
-          balance: platformCut,
-          commissionTotal: platformCut,
-        },
-      });
-    }
-
-    // Coach wallet: unique per coach (foundation = single currency enforced)
-    const existingWallet = await tx.coachWallet.findUnique({
-      where: { coachId: liveSession.coachId },
-      select: { id: true, currency: true },
-    });
-
-    if (existingWallet && existingWallet.currency !== currency) {
-      throw new Error('COACH_WALLET_CURRENCY_MISMATCH');
-    }
-
-    if (existingWallet) {
-      await tx.coachWallet.update({
-        where: { coachId: liveSession.coachId },
-        data: {
-          pendingAmount: { increment: coachCut },
-        },
-      });
-    } else {
-      await tx.coachWallet.create({
-        data: {
-          coachId: liveSession.coachId,
-          currency,
-          pendingAmount: coachCut,
-        },
-      });
-    }
+    const { platformCut, coachCut } = computeSplit(amount);
 
     // SessionPayment record (idempotence gate)
-    await tx.sessionPayment.create({
-      data: {
-        sessionId: liveSession.id,
-        participantId: existingTransaction.userId,
-        transactionId: existingTransaction.id,
-        amount,
-        platformCut,
-        coachCut,
-        currency,
-        status: 'PAID',
-        paidAt: new Date(),
-      },
+    let paymentCreated = false;
+    try {
+      await tx.sessionPayment.create({
+        data: {
+          sessionId: liveSession.id,
+          participantId: existingTransaction.userId,
+          transactionId: existingTransaction.id,
+          amount,
+          platformCut,
+          coachCut,
+          currency,
+          status: 'PAID',
+          paidAt: new Date(),
+        },
+      });
+      paymentCreated = true;
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        // already processed (idempotence)
+        return;
+      }
+      throw e;
+    }
+
+    if (!paymentCreated) return;
+
+    // Ledger-backed wallet updates (NO mutation without ledger)
+    await recordSessionPaymentSettlement({
+      tx,
+      coachId: liveSession.coachId,
+      currency,
+      amount,
+      platformCut,
+      coachCut,
+      referenceId: existingTransaction.id,
     });
   });
 
@@ -246,19 +202,14 @@ async function handleCheckoutExpired(session: Stripe.Checkout.Session) {
   });
 
   // Foundation: enregistrer un échec de paiement pour session, sans toucher aux wallets
-  const existingPayment = await prisma.sessionPayment.findUnique({
-    where: { transactionId },
-    select: { id: true },
+  const tx = await prisma.transaction.findUnique({
+    where: { id: transactionId },
+    include: { offer: true },
   });
 
-  if (!existingPayment) {
-    const tx = await prisma.transaction.findUnique({
-      where: { id: transactionId },
-      include: { offer: true },
-    });
-
-    const sessionId = tx?.offer?.sessionId;
-    if (tx && sessionId) {
+  const sessionId = tx?.offer?.sessionId;
+  if (tx && sessionId) {
+    try {
       await prisma.sessionPayment.create({
         data: {
           sessionId,
@@ -271,6 +222,12 @@ async function handleCheckoutExpired(session: Stripe.Checkout.Session) {
           status: 'FAILED',
         },
       });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        // already exists
+      } else {
+        throw e;
+      }
     }
   }
 

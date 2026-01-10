@@ -14,6 +14,7 @@ import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { isCoachOrAdmin, getAuthSession } from '@/lib/auth';
 import { checkUserAccess } from '@/actions/access';
+import { releaseCoachPendingToAvailable } from '@/lib/wallet/walletService';
 import { z } from 'zod';
 import { SessionStatus, MediaType } from '@prisma/client';
 
@@ -348,32 +349,32 @@ export async function endSessionAction(id: string) {
       const coachCutTotal = sum._sum.coachCut || 0;
       if (coachCutTotal <= 0) return;
 
-      // Locking isn't available on sqlite; we rely on atomic updates + releasedToCoachAt marker.
-      const wallet = await tx.coachWallet.findUnique({
-        where: { coachId: existingSession.coachId },
-        select: { id: true },
-      });
-
-      if (!wallet) {
-        // If wallet doesn't exist, nothing to release (should not happen if there were payments)
-        return;
-      }
-
-      await tx.coachWallet.update({
-        where: { coachId: existingSession.coachId },
-        data: {
-          pendingAmount: { decrement: coachCutTotal },
-          availableAmount: { increment: coachCutTotal },
-        },
-      });
-
-      await tx.sessionPayment.updateMany({
+      // Mark payments as released (idempotence gate for release)
+      const releasedAt = new Date();
+      const res = await tx.sessionPayment.updateMany({
         where: {
           sessionId: id,
           status: 'PAID',
           releasedToCoachAt: null,
         },
-        data: { releasedToCoachAt: new Date() },
+        data: { releasedToCoachAt: releasedAt },
+      });
+
+      if (res.count <= 0) return;
+
+      // Currency is enforced per-transaction in payments; for foundation we assume one currency per session.
+      const anyPayment = await tx.sessionPayment.findFirst({
+        where: { sessionId: id, status: 'PAID' },
+        select: { currency: true },
+      });
+      const currency = anyPayment?.currency || 'CHF';
+
+      await releaseCoachPendingToAvailable({
+        tx,
+        coachId: existingSession.coachId,
+        currency,
+        amount: coachCutTotal,
+        referenceId: `SESSION_END:${id}`,
       });
     });
 
