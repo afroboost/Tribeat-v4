@@ -16,6 +16,7 @@ import { isCoachOrAdmin, getAuthSession } from '@/lib/auth';
 import { checkUserAccess } from '@/actions/access';
 import { releaseCoachPendingToAvailable } from '@/lib/wallet/walletService';
 import { Prisma } from '@prisma/client';
+import { runWithWalletMutationAllowed } from '@/lib/wallet/walletMutationGuard';
 import { z } from 'zod';
 import { SessionStatus, MediaType } from '@prisma/client';
 
@@ -337,7 +338,8 @@ export async function endSessionAction(id: string) {
     });
 
     // Money flow: on fin de session, déplacer pending -> available pour ce coach (uniquement les paiements de cette session)
-    await prisma.$transaction(async (tx) => {
+    await runWithWalletMutationAllowed(async () =>
+      prisma.$transaction(async (tx) => {
       const sum = await tx.sessionPayment.aggregate({
         where: {
           sessionId: id,
@@ -391,7 +393,8 @@ export async function endSessionAction(id: string) {
         },
         data: { releasedToCoachAt: new Date() },
       });
-    });
+      })
+    );
 
     revalidatePath('/admin/sessions');
     revalidatePath('/sessions');

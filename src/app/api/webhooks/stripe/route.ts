@@ -11,6 +11,7 @@ import { prisma } from '@/lib/prisma';
 import Stripe from 'stripe';
 import { computeSplit, recordSessionPaymentSettlement } from '@/lib/wallet/walletService';
 import { Prisma } from '@prisma/client';
+import { runWithWalletMutationAllowed } from '@/lib/wallet/walletMutationGuard';
 
 export async function POST(request: NextRequest) {
   try {
@@ -89,7 +90,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  await prisma.$transaction(async (tx) => {
+  await runWithWalletMutationAllowed(async () =>
+    prisma.$transaction(async (tx) => {
     // Charger transaction + offer/session pour split
     const existingTransaction = await tx.transaction.findUnique({
       where: { id: transactionId },
@@ -183,7 +185,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       coachCut,
       referenceId: existingTransaction.id,
     });
-  });
+    })
+  );
 
   console.log(`[WEBHOOK] Checkout completed + wallets updated: ${transactionId}`);
 }
