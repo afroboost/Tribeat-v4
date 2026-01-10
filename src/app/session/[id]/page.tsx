@@ -10,6 +10,7 @@
 
 import { getAuthSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { checkUserAccess } from '@/actions/access';
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -72,18 +73,9 @@ export default async function SessionPage({ params }: SessionPageProps) {
     notFound();
   }
 
-  // Vérifier l'accès
-  const isCoach = liveSession.coachId === authSession.user.id;
-  const isAdmin = authSession.user.role === 'SUPER_ADMIN';
-  const isParticipant = liveSession.participants.some(
-    (p) => p.userId === authSession.user.id
-  );
-  
-  // Accès autorisé si: coach, admin, participant inscrit, ou session publique LIVE
-  const hasAccess = isCoach || isAdmin || isParticipant || 
-    (liveSession.isPublic && liveSession.status === 'LIVE');
-
-  if (!hasAccess) {
+  // ENFORCEMENT SERVER-SIDE: accès requis (participant OU accès payant OU free access), avec exceptions (coach/admin, public live)
+  const access = await checkUserAccess(authSession.user.id, liveSession.id);
+  if (!access.hasAccess) {
     notFound();
   }
 

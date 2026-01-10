@@ -14,6 +14,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/authConfig';
 import { prisma } from '@/lib/prisma';
 import { getPusherServer, getChannelName, LIVE_EVENTS, isPusherConfigured } from '@/lib/realtime/pusher';
+import { checkUserAccess } from '@/actions/access';
 import { 
   getLiveState, 
   setPlayState, 
@@ -189,6 +190,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json(
         { error: 'Non authentifié', code: 'UNAUTHORIZED' },
         { status: 401 }
+      );
+    }
+    
+    // ENFORCEMENT SERVER-SIDE: lecture état live réservée aux utilisateurs ayant accès
+    const access = await checkUserAccess(session.user.id, sessionId);
+    if (!access.hasAccess) {
+      return NextResponse.json(
+        { error: 'Accès non autorisé', code: 'FORBIDDEN' },
+        { status: 403 }
       );
     }
     

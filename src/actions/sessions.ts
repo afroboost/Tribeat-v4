@@ -13,6 +13,7 @@
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { isCoachOrAdmin, getAuthSession } from '@/lib/auth';
+import { checkUserAccess } from '@/actions/access';
 import { z } from 'zod';
 import { SessionStatus, MediaType } from '@prisma/client';
 
@@ -374,6 +375,12 @@ export async function joinSession(sessionId: string) {
 
     if (existing) {
       return { success: true, data: existing, message: 'Déjà inscrit' };
+    }
+
+    // ENFORCEMENT SERVER-SIDE: accès requis (payant OU free access) sauf exceptions (coach/admin, public live)
+    const access = await checkUserAccess(session.user.id, sessionId);
+    if (!access.hasAccess) {
+      return { success: false, error: 'Accès requis pour rejoindre cette session' };
     }
 
     // Vérifier limite participants
