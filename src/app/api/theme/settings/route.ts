@@ -9,7 +9,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-export const revalidate = 60; // Cache 60 secondes
+// Ne pas pré-exécuter au build (la DB n'est pas disponible en CI/Vercel build)
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {

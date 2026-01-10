@@ -97,6 +97,10 @@ export function LiveSessionClient({
         name: p.user.name,
         role: 'PARTICIPANT',
       }));
+
+  // Compte "en ligne" (presence inclut déjà le coach ; fallback DB n'inclut pas le coach)
+  const onlineCount =
+    liveParticipants.length > 0 ? liveParticipants.length : initialParticipants.length + 1;
   
   // État dérivé
   const currentStatus = sessionStatus === 'COMPLETED' ? 'ENDED' : 
@@ -119,7 +123,7 @@ export function LiveSessionClient({
       <div className="flex items-center justify-between">
         <LiveStatus
           status={currentStatus}
-          participantCount={participantCount + 1}
+          participantCount={onlineCount}
           isConnected={isConnected}
           connectionError={connectionError}
         />
@@ -231,7 +235,7 @@ export function LiveSessionClient({
             <CardHeader>
               <CardTitle className="text-white text-lg flex items-center gap-2">
                 <Users className="w-5 h-5" />
-                Participants ({participantCount + 1})
+                Participants ({onlineCount})
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">

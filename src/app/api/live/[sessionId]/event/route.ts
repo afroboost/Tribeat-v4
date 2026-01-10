@@ -88,6 +88,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         { status: 400 }
       );
     }
+
+    // 4bis. Statut session: ne pas accepter de contrôle si pas LIVE
+    // (on autorise "end" pour nettoyer même en cas d'état incohérent)
+    if (type !== 'end' && liveSession.status !== 'LIVE') {
+      return NextResponse.json(
+        { error: 'La session n\'est pas en direct', code: 'INVALID_SESSION_STATUS' },
+        { status: 409 }
+      );
+    }
     
     // 5. PERSISTER L'ÉTAT EN DB
     let newState;
@@ -147,13 +156,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       
       await pusher.trigger(channelName, eventName, eventData);
       
-      console.log(`[LIVE] ${type.toUpperCase()} broadcast to ${channelName}`, {
-        sessionId,
-        userId,
-        latency: Date.now() - startTime,
-      });
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[LIVE] ${type.toUpperCase()} broadcast to ${channelName}`, {
+          sessionId,
+          userId,
+          latency: Date.now() - startTime,
+        });
+      }
     } else {
-      console.warn('[LIVE] Pusher non configuré - broadcast désactivé');
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[LIVE] Pusher non configuré - broadcast désactivé');
+      }
     }
     
     // 7. Réponse avec métriques
@@ -201,6 +214,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         status: true,
         title: true,
         mediaUrl: true,
+        isPublic: true,
       },
     });
     
@@ -209,6 +223,27 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         { error: 'Session introuvable', code: 'NOT_FOUND' },
         { status: 404 }
       );
+    }
+
+    // Vérifier l'accès (coach/admin, participant inscrit, ou session publique LIVE)
+    const isCoach = liveSession.coachId === session.user.id;
+    const isAdmin = session.user.role === 'SUPER_ADMIN';
+    const isPublicLive = liveSession.isPublic && liveSession.status === 'LIVE';
+
+    if (!isCoach && !isAdmin && !isPublicLive) {
+      const isParticipant = await prisma.sessionParticipant.findUnique({
+        where: {
+          userId_sessionId: { userId: session.user.id, sessionId },
+        },
+        select: { id: true },
+      });
+
+      if (!isParticipant) {
+        return NextResponse.json(
+          { error: 'Accès non autorisé à cette session', code: 'FORBIDDEN' },
+          { status: 403 }
+        );
+      }
     }
     
     // Récupérer l'état persisté

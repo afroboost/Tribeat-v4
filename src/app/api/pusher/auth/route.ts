@@ -89,7 +89,9 @@ export async function POST(request: NextRequest) {
       }
       
       // Log l'accès
-      console.log(`[PUSHER AUTH] ${session.user.name} (${session.user.role}) → ${channelName}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[PUSHER AUTH] ${session.user.name} (${session.user.role}) → ${channelName}`);
+      }
     }
     
     // 5. Déterminer le rôle dans la session

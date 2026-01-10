@@ -10,12 +10,14 @@
 
 import { getAuthSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { LiveSessionClient } from '@/components/session/LiveSessionClient';
 import { Suspense } from 'react';
+
+export const dynamic = 'force-dynamic';
 
 interface SessionPageProps {
   params: Promise<{ id: string }>;
@@ -40,7 +42,26 @@ export default async function SessionPage({ params }: SessionPageProps) {
   const authSession = await getAuthSession();
   
   if (!authSession?.user?.id) {
-    redirect(`/auth/login?callbackUrl=/session/${id}`);
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4">
+        <div className="w-full max-w-md bg-gray-800 border border-gray-700 rounded-xl p-6 text-center space-y-4">
+          <h1 className="text-xl font-bold text-white">Connexion requise</h1>
+          <p className="text-sm text-gray-300">
+            Votre session n&apos;a pas pu être chargée. Connectez-vous pour rejoindre la session.
+          </p>
+          <div className="flex justify-center gap-3 pt-2">
+            <Link href={`/auth/login?callbackUrl=/session/${id}`}>
+              <Button>Se connecter</Button>
+            </Link>
+            <Link href="/sessions">
+              <Button variant="outline" className="text-gray-200 border-gray-600 hover:bg-gray-700">
+                Retour
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
   }
   
   // Récupérer la session live avec participants

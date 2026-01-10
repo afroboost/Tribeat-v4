@@ -10,12 +10,41 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Calendar, Users, Play, Clock } from 'lucide-react';
 
+export const dynamic = 'force-dynamic';
+
 export default async function SessionsPage() {
   const session = await getAuthSession();
 
-  // Si pas de session, le middleware redirige déjà
   if (!session) {
-    return null;
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <header className="bg-white border-b border-gray-200">
+          <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Sessions</h1>
+              <p className="text-sm text-gray-500">Connexion requise</p>
+            </div>
+            <Link href="/"><Button variant="outline">Accueil</Button></Link>
+          </div>
+        </header>
+
+        <main className="container mx-auto px-4 py-8">
+          <Card className="max-w-lg mx-auto text-center">
+            <CardHeader>
+              <CardTitle>Connectez-vous pour accéder aux sessions</CardTitle>
+              <CardDescription>
+                Votre session n&apos;a pas pu être chargée. Vous pouvez vous reconnecter sans perdre la page.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex justify-center">
+              <Link href="/auth/login?callbackUrl=/sessions">
+                <Button>Se connecter</Button>
+              </Link>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    );
   }
 
   const sessions = await prisma.session.findMany({

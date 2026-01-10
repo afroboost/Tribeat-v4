@@ -71,18 +71,20 @@ export function getPusherClient(): PusherClient {
       forceTLS: true,
     });
     
-    // Debug logging
-    _pusherClient.connection.bind('connected', () => {
-      console.log('[Pusher] Connecté - Socket ID:', _pusherClient?.connection.socket_id);
-    });
-    
-    _pusherClient.connection.bind('error', (err: Error) => {
-      console.error('[Pusher] Erreur connexion:', err);
-    });
-    
-    _pusherClient.connection.bind('disconnected', () => {
-      console.log('[Pusher] Déconnecté');
-    });
+    // Debug logging (éviter le bruit en prod)
+    if (process.env.NODE_ENV !== 'production') {
+      _pusherClient.connection.bind('connected', () => {
+        console.log('[Pusher] Connecté - Socket ID:', _pusherClient?.connection.socket_id);
+      });
+      
+      _pusherClient.connection.bind('error', (err: Error) => {
+        console.error('[Pusher] Erreur connexion:', err);
+      });
+      
+      _pusherClient.connection.bind('disconnected', () => {
+        console.log('[Pusher] Déconnecté');
+      });
+    }
   }
   
   return _pusherClient;

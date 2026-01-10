@@ -6,6 +6,8 @@ import { getTransactions, getPaymentStats } from '@/actions/payments';
 import { prisma } from '@/lib/prisma';
 import { PaymentManager } from '@/components/admin/PaymentManager';
 
+export const dynamic = 'force-dynamic';
+
 export default async function PaymentsPage() {
   const [transactionsResult, statsResult, users] = await Promise.all([
     getTransactions().catch(() => ({ success: false, data: [] })),

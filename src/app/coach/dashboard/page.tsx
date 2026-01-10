@@ -4,17 +4,60 @@
  */
 
 import { getAuthSession } from '@/lib/auth';
-import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+export const dynamic = 'force-dynamic';
 
 export default async function CoachDashboardPage() {
   // Double sécurité : vérification côté serveur
   const session = await getAuthSession();
 
-  if (!session || (session.user.role !== 'COACH' && session.user.role !== 'SUPER_ADMIN')) {
-    redirect('/403');
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center px-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Connexion requise</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Connectez-vous pour accéder au dashboard coach.
+            </p>
+            <div className="flex gap-3">
+              <Link href="/auth/login?callbackUrl=/coach/dashboard">
+                <Button>Se connecter</Button>
+              </Link>
+              <Link href="/">
+                <Button variant="outline">Accueil</Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (session.user.role !== 'COACH' && session.user.role !== 'SUPER_ADMIN') {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center px-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Accès refusé</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Vous n&apos;avez pas les permissions nécessaires pour accéder à cette page.
+            </p>
+            <div className="flex gap-3">
+              <Link href="/"><Button>Accueil</Button></Link>
+              <Link href="/sessions"><Button variant="outline">Sessions</Button></Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (
