@@ -6,6 +6,8 @@ import { getAccesses } from '@/actions/access';
 import { prisma } from '@/lib/prisma';
 import { AccessManager } from '@/components/admin/AccessManager';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AccessPage() {
   const [accessesResult, sessions, users] = await Promise.all([
     getAccesses().catch(() => ({ success: false, data: [] })),

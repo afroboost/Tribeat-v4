@@ -11,6 +11,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/authConfig';
 import { getPusherServer, isPusherConfigured } from '@/lib/realtime/pusher';
 import { prisma } from '@/lib/prisma';
+import { checkUserAccess } from '@/actions/access';
 
 export async function POST(request: NextRequest) {
   try {
@@ -65,31 +66,16 @@ export async function POST(request: NextRequest) {
         );
       }
       
-      // Vérifier les droits d'accès
-      const isCoach = liveSession.coachId === session.user.id;
-      const isAdmin = session.user.role === 'SUPER_ADMIN';
-      
-      if (!liveSession.isPublic && !isCoach && !isAdmin) {
-        // Vérifier si participant inscrit
-        const isParticipant = await prisma.sessionParticipant.findUnique({
-          where: {
-            userId_sessionId: {
-              userId: session.user.id,
-              sessionId: sessionId,
-            },
-          },
-        });
-        
-        if (!isParticipant) {
-          return NextResponse.json(
-            { error: 'Accès non autorisé à cette session' },
-            { status: 403 }
-          );
-        }
+      // ENFORCEMENT SERVER-SIDE: accès requis (participant OU accès payant OU free access), avec exceptions (coach/admin, public live)
+      const access = await checkUserAccess(session.user.id, sessionId);
+      if (!access.hasAccess) {
+        return NextResponse.json(
+          { error: 'Accès non autorisé à cette session' },
+          { status: 403 }
+        );
       }
       
-      // Log l'accès
-      console.log(`[PUSHER AUTH] ${session.user.name} (${session.user.role}) → ${channelName}`);
+      // No debug logs in production.
     }
     
     // 5. Déterminer le rôle dans la session

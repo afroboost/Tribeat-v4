@@ -6,8 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ========================================
@@ -24,18 +25,30 @@ model User {
   id        String   @id @default(cuid())
   email     String   @unique
   name      String
-  password  String   // Hashé avec bcrypt
+  password  String // Hashé avec bcrypt
   role      UserRole @default(PARTICIPANT)
   avatar    String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
-  coachedSessions  Session[]           @relation("CoachSessions")
-  sessionRoles     SessionParticipant[]
-  messages         ChatMessage[]
-  transactions     Transaction[]
-  accesses         UserAccess[]
+  coachedSessions         Session[]            @relation("CoachSessions")
+  sessionRoles            SessionParticipant[]
+  messages                ChatMessage[]
+  sessionLikes            SessionLike[]
+  transactions            Transaction[]
+  accesses                UserAccess[]
+  promoCodesCreated       PromoCode[]          @relation("PromoCodesCreated")
+  promoRedemptions        PromoRedemption[]
+  freeAccessGrants        FreeAccessGrant[]    @relation("FreeAccessGrantsUser")
+  freeAccessGrantsGranted FreeAccessGrant[]    @relation("FreeAccessGrantsGrantedBy")
+  freeAccessGrantsRevoked FreeAccessGrant[]    @relation("FreeAccessGrantsRevokedBy")
+  coachWallet             CoachWallet?
+  sessionPayments         SessionPayment[]
+  ledgerEntries           LedgerEntry[]
+  payouts                 Payout[]             @relation("CoachPayouts")
+  payoutsApproved         Payout[]             @relation("ApprovedPayouts")
+  stripeConnectAccountId  String?              @unique
 
   @@index([email])
 }
@@ -58,38 +71,59 @@ enum MediaType {
 }
 
 model Session {
-  id          String        @id @default(cuid())
+  id          String  @id @default(cuid())
   title       String
   description String?
   coachId     String
-  coach       User          @relation("CoachSessions", fields: [coachId], references: [id], onDelete: Cascade)
-  
+  coach       User    @relation("CoachSessions", fields: [coachId], references: [id], onDelete: Cascade)
+
   // Média synchronisé
-  mediaUrl    String?       // URL Cloudinary / Vercel Blob ou externe
-  mediaType   MediaType?
-  
+  mediaUrl  String? // URL Cloudinary / Vercel Blob ou externe
+  mediaType MediaType?
+
   // Planification
   scheduledAt DateTime
   startedAt   DateTime?
   endedAt     DateTime?
   status      SessionStatus @default(SCHEDULED)
-  
+
   // Métadonnées
   maxParticipants Int?
   isPublic        Boolean @default(true)
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  chatEnabled     Boolean @default(true)
+  likesCount      Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  participants SessionParticipant[]
-  messages     ChatMessage[]
-  offers       Offer[]
-  accesses     UserAccess[]
+  participants     SessionParticipant[]
+  messages         ChatMessage[]
+  likes            SessionLike[]
+  offers           Offer[]
+  accesses         UserAccess[]
+  promoCodes       PromoCode[]
+  freeAccessGrants FreeAccessGrant[]
+  promoRedemptions PromoRedemption[]
+  sessionPayments  SessionPayment[]
 
   @@index([coachId])
   @@index([status])
   @@index([scheduledAt])
+}
+
+model SessionLike {
+  id        String   @id @default(cuid())
+  sessionId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([sessionId, userId, createdAt])
+  @@index([userId, createdAt])
 }
 
 // ========================================
@@ -126,7 +160,7 @@ model ChatMessage {
   id        String   @id @default(cuid())
   sessionId String
   userId    String
-  content   String   
+  content   String
   timestamp DateTime @default(now())
 
   session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -147,11 +181,11 @@ enum SettingCategory {
 }
 
 model UI_Settings {
-  id       String          @id @default(cuid())
-  key      String          @unique
-  value    String          
-  category SettingCategory
-  updatedAt DateTime       @updatedAt
+  id        String          @id @default(cuid())
+  key       String          @unique
+  value     String
+  category  SettingCategory
+  updatedAt DateTime        @updatedAt
 
   @@index([category])
 }
@@ -167,10 +201,10 @@ enum Language {
 }
 
 model Translation {
-  id       String   @id @default(cuid())
-  key      String   // Ex: "session.join_button"
-  language Language
-  value    String   
+  id        String   @id @default(cuid())
+  key       String // Ex: "session.join_button"
+  language  Language
+  value     String
   updatedAt DateTime @updatedAt
 
   @@unique([key, language])
@@ -185,9 +219,9 @@ model Offer {
   id          String   @id @default(cuid())
   name        String
   description String?
-  price       Int      // En centimes (1000 = 10.00 CHF)
+  price       Int // En centimes (1000 = 10.00 CHF)
   currency    String   @default("CHF")
-  sessionId   String?  // Lié à une session spécifique (optionnel)
+  sessionId   String? // Lié à une session spécifique (optionnel)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -207,6 +241,9 @@ enum TransactionProvider {
   MANUAL
   STRIPE
   PAYSTACK
+  TWINT
+  MTN_MOMO
+  ORANGE_MONEY
 }
 
 enum TransactionStatus {
@@ -217,26 +254,196 @@ enum TransactionStatus {
 }
 
 model Transaction {
-  id              String              @id @default(cuid())
-  userId          String
-  offerId         String?
-  amount          Int                 // En centimes (ex: 1000 = 10.00 CHF)
-  currency        String              @default("CHF")
-  provider        TransactionProvider
-  providerTxId    String?             // Stripe Session ID / Checkout ID
-  status          TransactionStatus   @default(PENDING)
-  metadata        Json?               // Données additionnelles
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  id           String              @id @default(cuid())
+  userId       String
+  offerId      String?
+  amount       Int // En centimes (ex: 1000 = 10.00 CHF)
+  currency     String              @default("CHF")
+  provider     TransactionProvider
+  providerTxId String? // Stripe Session ID / Checkout ID
+  status       TransactionStatus   @default(PENDING)
+  metadata     Json? // Données additionnelles
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
 
-  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  offer      Offer?      @relation(fields: [offerId], references: [id], onDelete: SetNull)
-  userAccess UserAccess?
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offer           Offer?           @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  userAccess      UserAccess?
+  sessionPayment  SessionPayment?
+  ledgerEntries   LedgerEntry[]
+  promoRedemption PromoRedemption?
 
   @@index([userId])
   @@index([offerId])
   @@index([status])
   @@index([providerTxId])
+}
+
+enum LedgerEntryType {
+  PLATFORM_REVENUE
+  COACH_EARNING
+  PAYOUT
+}
+
+enum PayoutStatus {
+  PENDING
+  APPROVED
+  PROCESSING
+  PAID
+  FAILED
+  REJECTED
+}
+
+model Payout {
+  id                     String       @id @default(cuid())
+  coachId                String
+  amount                 Int // positive cents requested; ledger entry stores negative amount
+  currency               String       @default("CHF")
+  status                 PayoutStatus @default(PENDING)
+  createdAt              DateTime     @default(now())
+  approvedAt             DateTime?
+  approvedById           String?
+  stripeConnectAccountId String?
+  stripeTransferId       String?      @unique
+  stripePayoutId         String?      @unique
+  failureReason          String?
+  paidAt                 DateTime?
+
+  coach       User         @relation("CoachPayouts", fields: [coachId], references: [id], onDelete: Cascade)
+  approvedBy  User?        @relation("ApprovedPayouts", fields: [approvedById], references: [id], onDelete: SetNull)
+  ledgerEntry LedgerEntry?
+
+  @@index([coachId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model LedgerEntry {
+  id            String          @id @default(cuid())
+  type          LedgerEntryType
+  amount        Int // signed cents (+credit / -debit)
+  currency      String          @default("CHF")
+  userId        String?
+  transactionId String?
+  payoutId      String?
+  createdAt     DateTime        @default(now())
+
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  payout      Payout?      @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+
+  // Idempotence: at most 1 entry per transaction per type
+  @@unique([transactionId, type])
+  @@unique([payoutId])
+  @@index([type])
+  @@index([userId])
+  @@index([transactionId])
+  @@index([payoutId])
+  @@index([createdAt])
+}
+
+// ========================================
+// WALLET & MONEY FLOW (FOUNDATION ONLY)
+// ========================================
+
+model CoachWallet {
+  id              String   @id @default(cuid())
+  coachId         String   @unique
+  availableAmount Int      @default(0) // cents
+  pendingAmount   Int      @default(0) // cents
+  paidAmount      Int      @default(0) // cents (future payouts)
+  currency        String   @default("CHF")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  coach User @relation(fields: [coachId], references: [id], onDelete: Cascade)
+
+  @@index([coachId])
+}
+
+model PlatformWallet {
+  // Singleton
+  id              String   @id @default("platform")
+  balance         Int      @default(0) // cents
+  totalCommission Int      @default(0) // cents
+  currency        String   @default("CHF")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+enum WalletOwnerType {
+  PLATFORM
+  COACH
+}
+
+enum WalletLedgerSource {
+  SESSION_PAYMENT
+  SUBSCRIPTION
+  MANUAL
+}
+
+enum WalletLedgerDirection {
+  CREDIT
+  DEBIT
+}
+
+enum WalletLedgerReferenceType {
+  TRANSACTION
+  SESSION
+}
+
+model WalletLedger {
+  id            String                    @id @default(cuid())
+  ownerType     WalletOwnerType
+  ownerId       String? // NULL for PLATFORM
+  source        WalletLedgerSource
+  direction     WalletLedgerDirection
+  amount        Int // cents
+  currency      String                    @default("CHF")
+  referenceType WalletLedgerReferenceType
+  referenceId   String
+  createdAt     DateTime                  @default(now())
+
+  // Hard idempotence for ledger entries per reference
+  @@unique([ownerType, ownerId, source, direction, referenceType, referenceId])
+  @@index([ownerType, ownerId])
+  @@index([source])
+  @@index([referenceId])
+  @@index([createdAt])
+}
+
+enum SessionPaymentStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+model SessionPayment {
+  id            String @id @default(cuid())
+  sessionId     String
+  participantId String
+  transactionId String @unique
+
+  amount      Int // cents
+  platformCut Int // cents
+  coachCut    Int // cents
+  currency    String               @default("CHF")
+  status      SessionPaymentStatus @default(PENDING)
+
+  paidAt            DateTime?
+  releasedToCoachAt DateTime? // set when session ends and pending -> available
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  session     Session     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  participant User        @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([participantId])
+  @@index([status])
+  @@index([paidAt])
+  @@index([releasedToCoachAt])
 }
 
 // ========================================
@@ -253,14 +460,14 @@ enum AccessStatus {
 model UserAccess {
   id            String       @id @default(cuid())
   userId        String
-  sessionId     String?      // Accès à une session spécifique
-  offerId       String?      // Lié à une offre
+  sessionId     String? // Accès à une session spécifique
+  offerId       String? // Lié à une offre
   transactionId String?      @unique
   status        AccessStatus @default(PENDING)
   grantedAt     DateTime     @default(now())
-  expiresAt     DateTime?    // Null = permanent
+  expiresAt     DateTime? // Null = permanent
   revokedAt     DateTime?
-  revokedBy     String?      // ID admin qui a révoqué
+  revokedBy     String? // ID admin qui a révoqué
 
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   session     Session?     @relation(fields: [sessionId], references: [id], onDelete: SetNull)
@@ -276,22 +483,123 @@ model UserAccess {
 // ========================================
 
 model LiveSessionState {
-  id          String   @id @default(cuid())
-  sessionId   String   @unique
-  
+  id        String @id @default(cuid())
+  sessionId String @unique
+
   // État de lecture
-  isPlaying   Boolean  @default(false)
-  currentTime Float    @default(0)  // Position en secondes
-  volume      Int      @default(80) // 0-100
-  
+  isPlaying   Boolean @default(false)
+  currentTime Float   @default(0) // Position en secondes
+  volume      Int     @default(80) // 0-100
+
   // Métadonnées
-  lastEventBy String?  // ID du coach qui a émis le dernier event
+  lastEventBy String? // ID du coach qui a émis le dernier event
   lastEventAt DateTime @default(now())
-  
+
   // Timestamps
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([sessionId])
 }
 
+// ========================================
+// PROMO CODES + FREE ACCESS (PHASE 1)
+// ========================================
+
+enum PromoCodeType {
+  FULL_FREE
+  PERCENT
+  FIXED
+}
+
+model PromoCode {
+  id             String        @id @default(cuid())
+  code           String        @unique
+  type           PromoCodeType @default(FULL_FREE)
+  description    String?
+  isActive       Boolean       @default(true)
+  startsAt       DateTime?
+  endsAt         DateTime?
+  maxRedemptions Int?
+  percentOff     Int? // required when type = PERCENT (1-100)
+  amountOff      Int? // required when type = FIXED (cents)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  // Scope (optional): null => accès global
+  sessionId String?
+  session   Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  // Audit
+  createdById String?
+  createdBy   User?   @relation("PromoCodesCreated", fields: [createdById], references: [id], onDelete: SetNull)
+
+  // Relations
+  redemptions PromoRedemption[]
+
+  @@index([isActive])
+  @@index([startsAt])
+  @@index([endsAt])
+  @@index([sessionId])
+  @@index([createdById])
+}
+
+model PromoRedemption {
+  id             String        @id @default(cuid())
+  promoCodeId    String
+  userId         String
+  redeemedAt     DateTime      @default(now())
+  promoType      PromoCodeType
+  sessionId      String?
+  transactionId  String?
+  discountAmount Int? // cents, optional audit
+  finalAmount    Int? // cents, optional audit
+  currency       String? // optional audit
+
+  promoCode   PromoCode    @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session     Session?     @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  // 1 utilisation / user / code (Phase 1)
+  @@unique([promoCodeId, userId])
+  @@unique([transactionId])
+  @@index([userId])
+  @@index([promoCodeId])
+  @@index([redeemedAt])
+  @@index([promoType])
+  @@index([sessionId])
+}
+
+enum FreeAccessGrantSource {
+  ADMIN
+}
+
+model FreeAccessGrant {
+  id        String                @id @default(cuid())
+  userId    String
+  sessionId String? // null => accès global
+  source    FreeAccessGrantSource
+  reason    String?
+  grantedAt DateTime              @default(now())
+  expiresAt DateTime?
+  revokedAt DateTime?
+
+  // Audit (ADMIN grant/revoke)
+  grantedById String?
+  revokedById String?
+
+  user      User     @relation("FreeAccessGrantsUser", fields: [userId], references: [id], onDelete: Cascade)
+  session   Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  grantedBy User?    @relation("FreeAccessGrantsGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+  revokedBy User?    @relation("FreeAccessGrantsRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([source])
+  @@index([grantedAt])
+  @@index([expiresAt])
+  @@index([revokedAt])
+  @@index([grantedById])
+  @@index([revokedById])
+}

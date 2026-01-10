@@ -39,15 +39,11 @@ function LoginForm() {
 
   // DEBUG: Afficher l'état de session
   useEffect(() => {
-    console.log('[LOGIN PAGE] Session status:', status);
-    console.log('[LOGIN PAGE] Session data:', session);
-    console.log('[LOGIN PAGE] CallbackUrl:', callbackUrl);
   }, [session, status, callbackUrl]);
 
   // Si déjà connecté, rediriger
   useEffect(() => {
     if (status === 'authenticated' && session) {
-      console.log('[LOGIN PAGE] Déjà authentifié, redirection vers:', callbackUrl);
       router.push(callbackUrl);
     }
   }, [status, session, callbackUrl, router]);
@@ -62,7 +58,6 @@ function LoginForm() {
     setError(null);
     setDebugInfo(null);
 
-    console.log('[LOGIN] Tentative avec:', values.email);
 
     try {
       const result = await signIn('credentials', {
@@ -71,7 +66,6 @@ function LoginForm() {
         redirect: false,
       });
 
-      console.log('[LOGIN] Résultat signIn:', result);
       setDebugInfo(JSON.stringify(result, null, 2));
 
       if (result?.error) {
@@ -84,7 +78,6 @@ function LoginForm() {
       }
 
       if (result?.ok) {
-        console.log('[LOGIN] SUCCESS - Redirection vers:', callbackUrl);
         toast.success('Connexion réussie');
         
         // Forcer le refresh avant redirection

@@ -70,19 +70,6 @@ export function getPusherClient(): PusherClient {
       authEndpoint: '/api/pusher/auth',
       forceTLS: true,
     });
-    
-    // Debug logging
-    _pusherClient.connection.bind('connected', () => {
-      console.log('[Pusher] Connecté - Socket ID:', _pusherClient?.connection.socket_id);
-    });
-    
-    _pusherClient.connection.bind('error', (err: Error) => {
-      console.error('[Pusher] Erreur connexion:', err);
-    });
-    
-    _pusherClient.connection.bind('disconnected', () => {
-      console.log('[Pusher] Déconnecté');
-    });
   }
   
   return _pusherClient;
@@ -109,4 +96,7 @@ export const LIVE_EVENTS = {
   END: 'session:end',
   PARTICIPANT_JOINED: 'participant:joined',
   PARTICIPANT_LEFT: 'participant:left',
+  CHAT_MESSAGE: 'chat:message',
+  CHAT_STATUS: 'chat:status',
+  LIKES_UPDATED: 'likes:count',
 } as const;

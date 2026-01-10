@@ -9,6 +9,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { stripe, STRIPE_WEBHOOK_SECRET } from '@/lib/stripe';
 import { prisma } from '@/lib/prisma';
 import Stripe from 'stripe';
+import { Prisma, PromoCodeType } from '@prisma/client';
+import { computeSplit } from '@/lib/wallet/walletService';
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,12 +39,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
       }
     } else {
-      // Mode dev sans webhook secret (accepter mais logger warning)
-      console.warn('[WEBHOOK] No webhook secret - skipping signature verification (DEV ONLY)');
+      // Hard-fail safety: never accept unsigned webhooks in production.
+      if (process.env.NODE_ENV === 'production') {
+        return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 503 });
+      }
       event = JSON.parse(body) as Stripe.Event;
     }
-
-    console.log(`[WEBHOOK] Event received: ${event.type}`);
 
     // 3. Traiter les événements
     switch (event.type) {
@@ -63,9 +65,21 @@ export async function POST(request: NextRequest) {
         await handlePaymentFailed(paymentIntent);
         break;
       }
+      
+      case 'payout.paid': {
+        const payout = event.data.object as Stripe.Payout;
+        await handleStripePayoutPaid(payout);
+        break;
+      }
+      
+      case 'payout.failed': {
+        const payout = event.data.object as Stripe.Payout;
+        await handleStripePayoutFailed(payout);
+        break;
+      }
 
       default:
-        console.log(`[WEBHOOK] Unhandled event type: ${event.type}`);
+        // ignore
     }
 
     return NextResponse.json({ received: true });
@@ -87,52 +101,140 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  // Vérifier si déjà traité (idempotence)
-  const existingTransaction = await prisma.transaction.findUnique({
-    where: { id: transactionId },
-    include: { userAccess: true },
-  });
+  await prisma.$transaction(async (tx) => {
+    // Charger transaction + offer/session pour split
+    const existingTransaction = await tx.transaction.findUnique({
+      where: { id: transactionId },
+      include: { userAccess: true, offer: true },
+    });
 
-  if (!existingTransaction) {
-    console.error('[WEBHOOK] Transaction not found:', transactionId);
-    return;
-  }
+    if (!existingTransaction) {
+      console.error('[WEBHOOK] Transaction not found:', transactionId);
+      return;
+    }
 
-  if (existingTransaction.status === 'COMPLETED') {
-    console.log('[WEBHOOK] Transaction already completed - skipping');
-    return;
-  }
-
-  // Mettre à jour la transaction
-  await prisma.transaction.update({
-    where: { id: transactionId },
-    data: {
-      status: 'COMPLETED',
-      providerTxId: session.id,
-    },
-  });
-
-  // Créer l'accès utilisateur
-  if (!existingTransaction.userAccess) {
-    const offer = existingTransaction.offerId
-      ? await prisma.offer.findUnique({ where: { id: existingTransaction.offerId } })
-      : null;
-
-    await prisma.userAccess.create({
+    // Marquer transaction COMPLETED (même si déjà fait ailleurs, on upsert de manière sûre)
+    await tx.transaction.update({
+      where: { id: transactionId },
       data: {
-        userId: existingTransaction.userId,
-        offerId: existingTransaction.offerId,
-        sessionId: offer?.sessionId || null,
-        transactionId: transactionId,
-        status: 'ACTIVE',
-        grantedAt: new Date(),
+        status: 'COMPLETED',
+        providerTxId: session.id,
       },
     });
 
-    console.log(`[WEBHOOK] Access granted for user ${existingTransaction.userId}`);
-  }
+    // Créer UserAccess si absent (ne touche pas les wallets)
+    if (!existingTransaction.userAccess) {
+      await tx.userAccess.create({
+        data: {
+          userId: existingTransaction.userId,
+          offerId: existingTransaction.offerId,
+          sessionId: existingTransaction.offer?.sessionId || null,
+          transactionId: transactionId,
+          status: 'ACTIVE',
+          grantedAt: new Date(),
+        },
+      });
+    }
 
-  console.log(`[WEBHOOK] Checkout completed: ${transactionId}`);
+    // Money flow: only if offer is linked to a session
+    const sessionId = existingTransaction.offer?.sessionId;
+    if (!sessionId) return;
+
+    const liveSession = await tx.session.findUnique({
+      where: { id: sessionId },
+      select: { id: true, coachId: true },
+    });
+
+    if (!liveSession) {
+      console.error('[WEBHOOK] Session not found for payment:', sessionId);
+      return;
+    }
+
+    const amount = existingTransaction.amount;
+    const currency = existingTransaction.currency;
+
+    const { platformCut, coachCut } = computeSplit(amount);
+
+    // SessionPayment record (idempotence gate)
+    try {
+      await tx.sessionPayment.create({
+        data: {
+          sessionId: liveSession.id,
+          participantId: existingTransaction.userId,
+          transactionId: existingTransaction.id,
+          amount,
+          platformCut,
+          coachCut,
+          currency,
+          status: 'PAID',
+          paidAt: new Date(),
+        },
+      });
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) {
+        throw e;
+      }
+      // If SessionPayment already exists, we still attempt ledger writes below (idempotent),
+      // in case a previous run crashed between payment creation and ledger insertion.
+    }
+
+    // REAL IMMUTABLE LEDGER: create separate entries for platform and coach (balances derived from these)
+    try {
+      await tx.ledgerEntry.create({
+        data: {
+          type: 'PLATFORM_REVENUE',
+          amount: platformCut,
+          currency,
+          userId: null,
+          transactionId: existingTransaction.id,
+        },
+      });
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) {
+        throw e;
+      }
+    }
+
+    try {
+      await tx.ledgerEntry.create({
+        data: {
+          type: 'COACH_EARNING',
+          amount: coachCut,
+          currency,
+          userId: liveSession.coachId,
+          transactionId: existingTransaction.id,
+        },
+      });
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) {
+        throw e;
+      }
+    }
+
+    // Promo redemption (PERCENT/FIXED): consume on successful payment only (auditable)
+    const promoMeta = (existingTransaction.metadata as any)?.promo;
+    if (promoMeta?.promoCodeId) {
+      try {
+        await tx.promoRedemption.create({
+          data: {
+            promoCodeId: String(promoMeta.promoCodeId),
+            userId: existingTransaction.userId,
+            promoType: promoMeta.type as PromoCodeType,
+            sessionId: existingTransaction.offer?.sessionId || null,
+            transactionId: existingTransaction.id,
+            discountAmount: Number(promoMeta.discountAmount) || null,
+            finalAmount: Number(promoMeta.finalAmount) || null,
+            currency: existingTransaction.currency,
+          },
+        });
+      } catch (e) {
+        if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) {
+          throw e;
+        }
+      }
+    }
+  });
+
 }
 
 /**
@@ -148,13 +250,61 @@ async function handleCheckoutExpired(session: Stripe.Checkout.Session) {
     data: { status: 'FAILED' },
   });
 
-  console.log(`[WEBHOOK] Checkout expired: ${transactionId}`);
+  // Foundation: enregistrer un échec de paiement pour session, sans toucher aux wallets
+  const tx = await prisma.transaction.findUnique({
+    where: { id: transactionId },
+    include: { offer: true },
+  });
+
+  const sessionId = tx?.offer?.sessionId;
+  if (tx && sessionId) {
+    try {
+      await prisma.sessionPayment.create({
+        data: {
+          sessionId,
+          participantId: tx.userId,
+          transactionId: tx.id,
+          amount: tx.amount,
+          platformCut: 0,
+          coachCut: 0,
+          currency: tx.currency,
+          status: 'FAILED',
+        },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        // already exists
+      } else {
+        throw e;
+      }
+    }
+  }
+
 }
 
 /**
  * Traiter un paiement échoué
  */
 async function handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
-  console.log(`[WEBHOOK] Payment failed: ${paymentIntent.id}`);
   // Les transactions liées seront marquées FAILED via checkout.session.expired
+}
+
+async function handleStripePayoutPaid(payout: Stripe.Payout) {
+  if (!payout?.id) return;
+  await prisma.payout.updateMany({
+    where: { stripePayoutId: payout.id },
+    data: { status: 'PAID', paidAt: new Date(), failureReason: null },
+  });
+}
+
+async function handleStripePayoutFailed(payout: Stripe.Payout) {
+  if (!payout?.id) return;
+  const failureMessage =
+    (payout.failure_message as string | null) ||
+    (payout.failure_code as string | null) ||
+    'payout_failed';
+  await prisma.payout.updateMany({
+    where: { stripePayoutId: payout.id },
+    data: { status: 'FAILED', failureReason: failureMessage },
+  });
 }

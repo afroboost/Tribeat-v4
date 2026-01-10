@@ -13,6 +13,7 @@
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { isCoachOrAdmin, getAuthSession } from '@/lib/auth';
+import { checkUserAccess } from '@/actions/access';
 import { z } from 'zod';
 import { SessionStatus, MediaType } from '@prisma/client';
 
@@ -333,6 +334,18 @@ export async function endSessionAction(id: string) {
       },
     });
 
+    // NOTE (Fintech ledger phase):
+    // Wallet bucket movements (pending -> available) are intentionally not performed here.
+    // Authoritative balances are computed from immutable LedgerEntry rows created at payment time.
+    await prisma.sessionPayment.updateMany({
+      where: {
+        sessionId: id,
+        status: 'PAID',
+        releasedToCoachAt: null,
+      },
+      data: { releasedToCoachAt: new Date() },
+    });
+
     revalidatePath('/admin/sessions');
     revalidatePath('/sessions');
     revalidatePath(`/session/${id}`);
@@ -360,6 +373,12 @@ export async function joinSession(sessionId: string) {
 
     if (!liveSession) {
       return { success: false, error: 'Session introuvable' };
+    }
+
+    // ENFORCEMENT SERVER-SIDE: accès requis (payant OU free access), sauf exceptions (coach/admin, public live)
+    const access = await checkUserAccess(session.user.id, sessionId);
+    if (!access.hasAccess) {
+      return { success: false, error: 'Accès requis pour rejoindre cette session' };
     }
 
     // Vérifier si déjà participant

@@ -53,7 +53,7 @@ postgresql://user:password@ep-xxxx-xxxx.eu-central-1.aws.neon.tech/tribeat?sslmo
 
 ---
 
-## 🚀 Migration Step-by-Step
+## 🚀 Migration Step-by-Step (PostgreSQL + Prisma Migrate)
 
 ### Étape 1 : Mettre à Jour .env
 
@@ -84,7 +84,7 @@ Doit afficher :
 provider = "postgresql"
 ```
 
-### Étape 3 : Push du Schéma
+### Étape 3 : Appliquer les migrations
 
 ```bash
 cd /app
@@ -92,8 +92,8 @@ cd /app
 # Générer le client Prisma
 yarn prisma generate
 
-# Push du schéma vers PostgreSQL
-yarn prisma db push
+# Appliquer les migrations (prod-safe)
+npx prisma migrate deploy
 
 # Vérification : Affiche les tables créées
 yarn prisma db studio
@@ -260,13 +260,13 @@ Clés traduites en FR/EN/DE :
 
 ---
 
-## 🔄 Réinitialiser la Base de Données
+## 🔄 Réinitialiser la Base de Données (ATTENTION)
 
 Si besoin de repartir de zéro :
 
 ```bash
 # 1. Reset de la base (ATTENTION : Supprime toutes les données)
-yarn prisma db push --force-reset
+npx prisma migrate reset
 
 # 2. Re-seed
 yarn db:seed

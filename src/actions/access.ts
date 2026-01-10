@@ -8,7 +8,6 @@
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { requireAdmin, logAdminAction } from '@/lib/auth-helpers';
-import { AccessStatus } from '@prisma/client';
 
 interface ActionResult {
   success: boolean;
@@ -199,49 +198,83 @@ export async function checkUserAccess(
   sessionId: string
 ): Promise<{ hasAccess: boolean; reason?: string }> {
   try {
-    const access = await prisma.userAccess.findFirst({
-      where: {
-        userId,
-        status: 'ACTIVE',
-        AND: [
-          {
-            OR: [
-              { sessionId }, // Accès spécifique à la session
-              { sessionId: null }, // Accès global
-            ],
-          },
-          {
-            OR: [
-              { expiresAt: null }, // Pas d'expiration
-              { expiresAt: { gt: new Date() } }, // Pas encore expiré
-            ],
-          },
-        ],
-      },
-    });
-
-    if (access) {
-      return { hasAccess: true };
-    }
-
-    // Vérifier si l'utilisateur est coach ou admin
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { role: true },
     });
 
-    if (user?.role === 'SUPER_ADMIN' || user?.role === 'COACH') {
-      return { hasAccess: true, reason: 'admin_or_coach' };
+    if (user?.role === 'SUPER_ADMIN') {
+      return { hasAccess: true, reason: 'super_admin' };
     }
 
-    // Vérifier si la session est publique et live
+    // Charger la session (et son coach) une fois
     const session = await prisma.session.findUnique({
       where: { id: sessionId },
-      select: { isPublic: true, status: true },
+      select: { isPublic: true, status: true, coachId: true },
     });
+
+    if (session?.coachId === userId) {
+      return { hasAccess: true, reason: 'coach_owner' };
+    }
 
     if (session?.isPublic && session?.status === 'LIVE') {
       return { hasAccess: true, reason: 'public_live_session' };
+    }
+
+    // Vérifier FreeAccessGrant (ADMIN ou PROMO CODE) : global ou session, non révoqué, non expiré
+    const freeAccess = await prisma.freeAccessGrant.findFirst({
+      where: {
+        userId,
+        revokedAt: null,
+        AND: [
+          {
+            OR: [{ sessionId }, { sessionId: null }],
+          },
+          {
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          },
+        ],
+      },
+      select: { id: true },
+    });
+
+    if (freeAccess) {
+      return { hasAccess: true, reason: 'free_access' };
+    }
+
+    // Vérifier PromoRedemption FULL_FREE : global ou session (promo scope figée à la redemption)
+    const promoFree = await prisma.promoRedemption.findFirst({
+      where: {
+        userId,
+        promoType: 'FULL_FREE',
+        OR: [{ sessionId }, { sessionId: null }],
+      },
+      select: { id: true },
+    });
+
+    if (promoFree) {
+      return { hasAccess: true, reason: 'promo_full_free' };
+    }
+
+    // Vérifier UserAccess (accès payant) : global ou session, actif, non expiré
+    const paidAccess = await prisma.userAccess.findFirst({
+      where: {
+        userId,
+        status: 'ACTIVE',
+        AND: [
+          {
+            OR: [{ sessionId }, { sessionId: null }],
+          },
+          {
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          },
+        ],
+      },
+      select: { id: true },
+    });
+
+    if (paidAccess) {
+      return { hasAccess: true, reason: 'paid_access' };
     }
 
     return { hasAccess: false, reason: 'no_access' };

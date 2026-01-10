@@ -10,6 +10,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 export const revalidate = 60; // Cache 60 secondes
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
@@ -29,8 +30,6 @@ export async function GET() {
       },
     });
   } catch (error) {
-    console.error('Error fetching theme settings:', error);
-    
     // Fallback : valeurs par défaut
     return NextResponse.json({
       primary_color: '#3b82f6',
