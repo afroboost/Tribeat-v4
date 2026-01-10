@@ -217,21 +217,6 @@ export async function checkUserAccess(
       return { hasAccess: true, reason: 'public_live_session' };
     }
 
-    // Vérifier si participant inscrit (accès existant via inscription)
-    const isParticipant = await prisma.sessionParticipant.findUnique({
-      where: {
-        userId_sessionId: {
-          userId,
-          sessionId,
-        },
-      },
-      select: { id: true },
-    });
-
-    if (isParticipant) {
-      return { hasAccess: true, reason: 'participant' };
-    }
-
     // Vérifier FreeAccessGrant (ADMIN ou PROMO CODE) : global ou session, non révoqué, non expiré
     const freeAccess = await prisma.freeAccessGrant.findFirst({
       where: {
@@ -251,6 +236,20 @@ export async function checkUserAccess(
 
     if (freeAccess) {
       return { hasAccess: true, reason: 'free_access' };
+    }
+
+    // Vérifier PromoRedemption FULL_FREE : global ou session (promo scope figée à la redemption)
+    const promoFree = await prisma.promoRedemption.findFirst({
+      where: {
+        userId,
+        promoType: 'FULL_FREE',
+        OR: [{ sessionId }, { sessionId: null }],
+      },
+      select: { id: true },
+    });
+
+    if (promoFree) {
+      return { hasAccess: true, reason: 'promo_full_free' };
     }
 
     // Vérifier UserAccess (accès payant) : global ou session, actif, non expiré

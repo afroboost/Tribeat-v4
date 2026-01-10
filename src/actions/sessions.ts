@@ -363,6 +363,12 @@ export async function joinSession(sessionId: string) {
       return { success: false, error: 'Session introuvable' };
     }
 
+    // ENFORCEMENT SERVER-SIDE: accès requis (payant OU free access), sauf exceptions (coach/admin, public live)
+    const access = await checkUserAccess(session.user.id, sessionId);
+    if (!access.hasAccess) {
+      return { success: false, error: 'Accès requis pour rejoindre cette session' };
+    }
+
     // Vérifier si déjà participant
     const existing = await prisma.sessionParticipant.findUnique({
       where: {
@@ -375,12 +381,6 @@ export async function joinSession(sessionId: string) {
 
     if (existing) {
       return { success: true, data: existing, message: 'Déjà inscrit' };
-    }
-
-    // ENFORCEMENT SERVER-SIDE: accès requis (payant OU free access) sauf exceptions (coach/admin, public live)
-    const access = await checkUserAccess(session.user.id, sessionId);
-    if (!access.hasAccess) {
-      return { success: false, error: 'Accès requis pour rejoindre cette session' };
     }
 
     // Vérifier limite participants

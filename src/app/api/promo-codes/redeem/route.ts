@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
       select: {
         id: true,
         code: true,
+        type: true,
         isActive: true,
         startsAt: true,
         endsAt: true,
@@ -46,6 +47,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Code expiré' }, { status: 400 });
     }
 
+    // PHASE 1B: seul FULL_FREE donne un accès (les autres types seront traités côté paiement plus tard)
+    if (promo.type !== 'FULL_FREE') {
+      return NextResponse.json({ error: 'Code non applicable (PHASE 1)' }, { status: 400 });
+    }
+
     // Phase 1: un promo code peut être global OU scope à une session.
     // Si scope session, le client ne choisit pas une autre session.
     if (body?.sessionId && promo.sessionId && String(body.sessionId) !== promo.sessionId) {
@@ -55,61 +61,57 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Ce code est global (sessionId non accepté)' }, { status: 400 });
     }
 
-    // Déjà utilisé par cet utilisateur ?
-    const existing = await prisma.promoRedemption.findUnique({
-      where: {
-        promoCodeId_userId: {
-          promoCodeId: promo.id,
-          userId: session.user.id,
+    const redemption = await prisma.$transaction(async (tx) => {
+      // Déjà utilisé par cet utilisateur ?
+      const existing = await tx.promoRedemption.findUnique({
+        where: {
+          promoCodeId_userId: {
+            promoCodeId: promo.id,
+            userId: session.user.id,
+          },
         },
-      },
-      select: { id: true },
-    });
-    if (existing) {
-      return NextResponse.json({ error: 'Code déjà utilisé' }, { status: 409 });
-    }
-
-    // Max redemptions global ?
-    if (promo.maxRedemptions !== null) {
-      const count = await prisma.promoRedemption.count({
-        where: { promoCodeId: promo.id },
+        select: { id: true },
       });
-      if (count >= promo.maxRedemptions) {
-        return NextResponse.json({ error: 'Code épuisé' }, { status: 409 });
+      if (existing) {
+        throw new Error('ALREADY_REDEEMED');
       }
-    }
 
-    const result = await prisma.$transaction(async (tx) => {
-      const redemption = await tx.promoRedemption.create({
+      // Max redemptions global ?
+      if (promo.maxRedemptions !== null) {
+        const count = await tx.promoRedemption.count({
+          where: { promoCodeId: promo.id },
+        });
+        if (count >= promo.maxRedemptions) {
+          throw new Error('MAX_REDEMPTIONS_REACHED');
+        }
+      }
+
+      return await tx.promoRedemption.create({
         data: {
           promoCodeId: promo.id,
           userId: session.user.id,
-        },
-      });
-
-      const grant = await tx.freeAccessGrant.create({
-        data: {
-          userId: session.user.id,
+          promoType: promo.type,
           sessionId: promo.sessionId ?? null,
-          source: 'PROMO_CODE',
-          reason: `PROMO:${promo.code}`,
-          promoRedemptionId: redemption.id,
         },
       });
-
-      return { redemption, grant };
     });
 
     return NextResponse.json(
       {
         success: true,
         promoCode: promo.code,
-        grant: result.grant,
+        redemption,
       },
       { status: 201 }
     );
   } catch (error) {
     console.error('[PROMO REDEEM] Error:', error);
+    if (error instanceof Error && error.message === 'ALREADY_REDEEMED') {
+      return NextResponse.json({ error: 'Code déjà utilisé' }, { status: 409 });
+    }
+    if (error instanceof Error && error.message === 'MAX_REDEMPTIONS_REACHED') {
+      return NextResponse.json({ error: 'Code épuisé' }, { status: 409 });
+    }
     return NextResponse.json({ error: 'Erreur lors de la redemption' }, { status: 500 });
   }
 }

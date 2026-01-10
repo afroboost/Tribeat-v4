@@ -93,6 +93,7 @@ model Session {
   accesses         UserAccess[]
   promoCodes       PromoCode[]
   freeAccessGrants FreeAccessGrant[]
+  promoRedemptions PromoRedemption[]
 
   @@index([coachId])
   @@index([status])
@@ -307,13 +308,15 @@ model LiveSessionState {
 // ========================================
 
 enum PromoCodeType {
-  FREE_ACCESS
+  FULL_FREE
+  PERCENT
+  FIXED
 }
 
 model PromoCode {
   id             String        @id @default(cuid())
   code           String        @unique
-  type           PromoCodeType @default(FREE_ACCESS)
+  type           PromoCodeType @default(FULL_FREE)
   description    String?
   isActive       Boolean       @default(true)
   startsAt       DateTime?
@@ -341,25 +344,28 @@ model PromoCode {
 }
 
 model PromoRedemption {
-  id          String   @id @default(cuid())
+  id          String        @id @default(cuid())
   promoCodeId String
   userId      String
-  redeemedAt  DateTime @default(now())
+  redeemedAt  DateTime      @default(now())
+  promoType   PromoCodeType
+  sessionId   String?
 
-  promoCode       PromoCode        @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  freeAccessGrant FreeAccessGrant?
+  promoCode PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session   Session?  @relation(fields: [sessionId], references: [id], onDelete: SetNull)
 
   // 1 utilisation / user / code (Phase 1)
   @@unique([promoCodeId, userId])
   @@index([userId])
   @@index([promoCodeId])
   @@index([redeemedAt])
+  @@index([promoType])
+  @@index([sessionId])
 }
 
 enum FreeAccessGrantSource {
   ADMIN
-  PROMO_CODE
 }
 
 model FreeAccessGrant {
@@ -376,14 +382,10 @@ model FreeAccessGrant {
   grantedById String?
   revokedById String?
 
-  // Promo (optional)
-  promoRedemptionId String? @unique
-
-  user            User             @relation("FreeAccessGrantsUser", fields: [userId], references: [id], onDelete: Cascade)
-  session         Session?         @relation(fields: [sessionId], references: [id], onDelete: SetNull)
-  grantedBy       User?            @relation("FreeAccessGrantsGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
-  revokedBy       User?            @relation("FreeAccessGrantsRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
-  promoRedemption PromoRedemption? @relation(fields: [promoRedemptionId], references: [id], onDelete: SetNull)
+  user      User     @relation("FreeAccessGrantsUser", fields: [userId], references: [id], onDelete: Cascade)
+  session   Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  grantedBy User?    @relation("FreeAccessGrantsGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+  revokedBy User?    @relation("FreeAccessGrantsRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([sessionId])

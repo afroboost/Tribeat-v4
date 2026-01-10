@@ -24,13 +24,6 @@ export async function GET(request: NextRequest) {
       session: { select: { id: true, title: true } },
       grantedBy: { select: { id: true, email: true, name: true } },
       revokedBy: { select: { id: true, email: true, name: true } },
-      promoRedemption: {
-        select: {
-          id: true,
-          promoCode: { select: { code: true } },
-          redeemedAt: true,
-        },
-      },
     },
   });
 
