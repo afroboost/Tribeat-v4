@@ -222,6 +222,9 @@ enum TransactionProvider {
   MANUAL
   STRIPE
   PAYSTACK
+  TWINT
+  MTN_MOMO
+  ORANGE_MONEY
 }
 
 enum TransactionStatus {
