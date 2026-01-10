@@ -65,29 +65,54 @@ export default async function SessionPage({ params }: SessionPageProps) {
   }
   
   // Récupérer la session live avec participants
-  const liveSession = await prisma.session.findUnique({
-    where: { id },
-    include: {
-      coach: { 
-        select: { 
-          id: true, 
-          name: true, 
-          avatar: true 
-        } 
+  let liveSession: any = null;
+  try {
+    liveSession = await prisma.session.findUnique({
+      where: { id },
+      include: {
+        coach: {
+          select: {
+            id: true,
+            name: true,
+            avatar: true,
+          },
+        },
+        participants: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                avatar: true,
+              },
+            },
+          },
+        },
       },
-      participants: {
-        include: {
-          user: { 
-            select: { 
-              id: true, 
-              name: true, 
-              avatar: true 
-            } 
-          }
-        }
-      }
-    }
-  }).catch(() => null);
+    });
+  } catch (error) {
+    console.error('[SESSION] Failed to load session', { id, error });
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4">
+        <div className="w-full max-w-md bg-gray-800 border border-gray-700 rounded-xl p-6 text-center space-y-4">
+          <h1 className="text-xl font-bold text-white">Erreur de chargement</h1>
+          <p className="text-sm text-gray-300">
+            Impossible de charger cette session pour le moment. Réessayez.
+          </p>
+          <div className="flex justify-center gap-3 pt-2">
+            <Link href={`/session/${id}`}>
+              <Button>Réessayer</Button>
+            </Link>
+            <Link href="/sessions">
+              <Button variant="outline" className="text-gray-200 border-gray-600 hover:bg-gray-700">
+                Retour
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!liveSession) {
     notFound();
@@ -96,7 +121,7 @@ export default async function SessionPage({ params }: SessionPageProps) {
   // Vérifier l'accès
   const isCoach = liveSession.coachId === authSession.user.id;
   const isAdmin = authSession.user.role === 'SUPER_ADMIN';
-  const isParticipant = liveSession.participants.some(
+  const isParticipant = (liveSession.participants as Array<{ userId: string }>).some(
     (p) => p.userId === authSession.user.id
   );
   

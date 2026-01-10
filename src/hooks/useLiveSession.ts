@@ -68,6 +68,11 @@ export interface UseLiveSessionReturn {
   isCoach: boolean;
 }
 
+function safeNumber(value: unknown, fallback: number) {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 // ========================================
 // HOOK
 // ========================================
@@ -89,6 +94,35 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
   const isCoach = userRole === 'COACH' || userRole === 'SUPER_ADMIN';
   const debug = process.env.NODE_ENV !== 'production';
   const hasHydratedRef = useRef(false);
+
+  const applyIncomingState = useCallback(
+    (incoming: Partial<LiveState> & { sessionId?: string }) => {
+      // Defensive: ignore events for the wrong session
+      if (incoming.sessionId && incoming.sessionId !== sessionId) return;
+      setLiveState((prev) => {
+        const base: LiveState =
+          prev ??
+          ({
+            sessionId,
+            isPlaying: false,
+            currentTime: 0,
+            volume: 80,
+          } satisfies LiveState);
+
+        const currentTime = safeNumber((incoming as any).currentTime, base.currentTime);
+        const volume = Math.max(0, Math.min(100, safeNumber((incoming as any).volume, base.volume)));
+
+        return {
+          ...base,
+          ...incoming,
+          sessionId,
+          currentTime,
+          volume,
+        };
+      });
+    },
+    [sessionId]
+  );
   
   // ========================================
   // FETCH INITIAL STATE FROM DB
@@ -225,11 +259,11 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
           if (debug) {
             console.log('[LIVE] PLAY reçu:', data);
           }
-          setLiveState(prev => ({ ...prev, ...data, isPlaying: true }));
+          applyIncomingState({ ...data, isPlaying: true });
           
           const audioEngine = audioEngineRef.current;
           if (audioEngine && !isCoach) {
-            audioEngine.seek(data.currentTime);
+            audioEngine.seek(safeNumber(data.currentTime, 0));
             audioEngine.play();
           }
         });
@@ -238,12 +272,12 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
           if (debug) {
             console.log('[LIVE] PAUSE reçu:', data);
           }
-          setLiveState(prev => ({ ...prev, ...data, isPlaying: false }));
+          applyIncomingState({ ...data, isPlaying: false });
           
           const audioEngine = audioEngineRef.current;
           if (audioEngine && !isCoach) {
             audioEngine.pause();
-            audioEngine.seek(data.currentTime);
+            audioEngine.seek(safeNumber(data.currentTime, 0));
           }
         });
         
@@ -251,11 +285,11 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
           if (debug) {
             console.log('[LIVE] SEEK reçu:', data);
           }
-          setLiveState(prev => ({ ...prev, ...data }));
+          applyIncomingState(data);
           
           const audioEngine = audioEngineRef.current;
           if (audioEngine && !isCoach) {
-            audioEngine.seek(data.currentTime);
+            audioEngine.seek(safeNumber(data.currentTime, 0));
           }
         });
         
@@ -263,11 +297,11 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
           if (debug) {
             console.log('[LIVE] VOLUME reçu:', data);
           }
-          setLiveState(prev => ({ ...prev, ...data }));
+          applyIncomingState(data);
           
           const audioEngine = audioEngineRef.current;
           if (audioEngine && !isCoach) {
-            audioEngine.setVolume(data.volume);
+            audioEngine.setVolume(Math.max(0, Math.min(100, safeNumber(data.volume, 80))));
           }
         });
         
@@ -307,8 +341,12 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
         // @ts-expect-error - internal marker for cleanup
         channel.__tribeatCleanup?.();
         channel.unbind_all();
-        const pusher = getPusherClient();
-        pusher.unsubscribe(getChannelName(sessionId));
+        try {
+          const pusher = getPusherClient();
+          pusher.unsubscribe(getChannelName(sessionId));
+        } catch {
+          // ignore: pusher may be misconfigured
+        }
       }
       channelRef.current = null;
 
@@ -320,7 +358,7 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
         // ignore
       }
     };
-  }, [sessionId, isCoach, refreshState, onError, debug]);
+  }, [sessionId, isCoach, refreshState, onError, debug, applyIncomingState]);
   
   // ========================================
   // AUDIO ENGINE

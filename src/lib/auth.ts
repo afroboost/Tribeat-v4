@@ -29,7 +29,13 @@ export function getRedirectByRole(role: UserRole): string {
  * Retourne null si non authentifié
  */
 export async function getAuthSession() {
-  return await getServerSession(authOptions);
+  try {
+    return await getServerSession(authOptions);
+  } catch (error) {
+    // Never crash SSR due to auth/session decoding/config errors.
+    console.error('[AUTH] getServerSession failed', error);
+    return null;
+  }
 }
 
 /**
