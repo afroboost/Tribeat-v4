@@ -14,9 +14,6 @@ import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { isCoachOrAdmin, getAuthSession } from '@/lib/auth';
 import { checkUserAccess } from '@/actions/access';
-import { releaseCoachPendingToAvailable } from '@/lib/wallet/walletService';
-import { Prisma } from '@prisma/client';
-import { runWithWalletMutationAllowed } from '@/lib/wallet/walletMutationGuard';
 import { z } from 'zod';
 import { SessionStatus, MediaType } from '@prisma/client';
 
@@ -337,65 +334,17 @@ export async function endSessionAction(id: string) {
       },
     });
 
-    // Money flow: on fin de session, déplacer pending -> available pour ce coach (uniquement les paiements de cette session)
-    await runWithWalletMutationAllowed(async () =>
-      prisma.$transaction(async (tx) => {
-      const sum = await tx.sessionPayment.aggregate({
-        where: {
-          sessionId: id,
-          status: 'PAID',
-          releasedToCoachAt: null,
-        },
-        _sum: { coachCut: true },
-      });
-
-      const coachCutTotal = sum._sum.coachCut || 0;
-      if (coachCutTotal <= 0) return;
-
-      // Currency is enforced per-transaction in payments; for foundation we assume one currency per session.
-      const anyPayment = await tx.sessionPayment.findFirst({
-        where: { sessionId: id, status: 'PAID' },
-        select: { currency: true },
-      });
-      const currency = anyPayment?.currency || 'CHF';
-
-      try {
-        await releaseCoachPendingToAvailable({
-          tx,
-          coachId: existingSession.coachId,
-          currency,
-          amount: coachCutTotal,
-          referenceType: 'SESSION',
-          referenceId: id,
-        });
-      } catch (e) {
-        // Idempotence: if release ledger already exists, do not mutate balances again.
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-          // Ensure payments are marked released (metadata only, no money mutation).
-          await tx.sessionPayment.updateMany({
-            where: {
-              sessionId: id,
-              status: 'PAID',
-              releasedToCoachAt: null,
-            },
-            data: { releasedToCoachAt: new Date() },
-          });
-          return;
-        }
-        throw e;
-      }
-
-      // Mark payments as released only after successful ledger+wallet mutation.
-      await tx.sessionPayment.updateMany({
-        where: {
-          sessionId: id,
-          status: 'PAID',
-          releasedToCoachAt: null,
-        },
-        data: { releasedToCoachAt: new Date() },
-      });
-      })
-    );
+    // NOTE (Fintech ledger phase):
+    // Wallet bucket movements (pending -> available) are intentionally not performed here.
+    // Authoritative balances are computed from immutable LedgerEntry rows created at payment time.
+    await prisma.sessionPayment.updateMany({
+      where: {
+        sessionId: id,
+        status: 'PAID',
+        releasedToCoachAt: null,
+      },
+      data: { releasedToCoachAt: new Date() },
+    });
 
     revalidatePath('/admin/sessions');
     revalidatePath('/sessions');

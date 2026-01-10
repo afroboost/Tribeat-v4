@@ -43,6 +43,7 @@ model User {
   freeAccessGrantsRevoked FreeAccessGrant[]    @relation("FreeAccessGrantsRevokedBy")
   coachWallet             CoachWallet?
   sessionPayments         SessionPayment[]
+  ledgerEntries           LedgerEntry[]
 
   @@index([email])
 }
@@ -244,11 +245,38 @@ model Transaction {
   offer          Offer?          @relation(fields: [offerId], references: [id], onDelete: SetNull)
   userAccess     UserAccess?
   sessionPayment SessionPayment?
+  ledgerEntries  LedgerEntry[]
 
   @@index([userId])
   @@index([offerId])
   @@index([status])
   @@index([providerTxId])
+}
+
+enum LedgerEntryType {
+  PLATFORM_REVENUE
+  COACH_EARNING
+  PAYOUT
+}
+
+model LedgerEntry {
+  id            String          @id @default(cuid())
+  type          LedgerEntryType
+  amount        Int // signed cents (+credit / -debit)
+  currency      String          @default("CHF")
+  userId        String?
+  transactionId String?
+  createdAt     DateTime        @default(now())
+
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  // Idempotence: at most 1 entry per transaction per type
+  @@unique([transactionId, type])
+  @@index([type])
+  @@index([userId])
+  @@index([transactionId])
+  @@index([createdAt])
 }
 
 // ========================================

@@ -9,9 +9,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { stripe, STRIPE_WEBHOOK_SECRET } from '@/lib/stripe';
 import { prisma } from '@/lib/prisma';
 import Stripe from 'stripe';
-import { computeSplit, recordSessionPaymentSettlement } from '@/lib/wallet/walletService';
 import { Prisma } from '@prisma/client';
-import { runWithWalletMutationAllowed } from '@/lib/wallet/walletMutationGuard';
+import { computeSplit } from '@/lib/wallet/walletService';
 
 export async function POST(request: NextRequest) {
   try {
@@ -90,8 +89,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  await runWithWalletMutationAllowed(async () =>
-    prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
     // Charger transaction + offer/session pour split
     const existingTransaction = await tx.transaction.findUnique({
       where: { id: transactionId },
@@ -175,21 +173,41 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
     if (!paymentCreated) return;
 
-    // Ledger-backed wallet updates (NO mutation without ledger)
-    await recordSessionPaymentSettlement({
-      tx,
-      coachId: liveSession.coachId,
-      currency,
-      amount,
-      platformCut,
-      coachCut,
-      referenceType: 'TRANSACTION',
-      referenceId: existingTransaction.id,
-    });
-    })
-  );
+    // REAL IMMUTABLE LEDGER: create separate entries for platform and coach (balances derived from these)
+    try {
+      await tx.ledgerEntry.create({
+        data: {
+          type: 'PLATFORM_REVENUE',
+          amount: platformCut,
+          currency,
+          userId: null,
+          transactionId: existingTransaction.id,
+        },
+      });
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) {
+        throw e;
+      }
+    }
 
-  console.log(`[WEBHOOK] Checkout completed + wallets updated: ${transactionId}`);
+    try {
+      await tx.ledgerEntry.create({
+        data: {
+          type: 'COACH_EARNING',
+          amount: coachCut,
+          currency,
+          userId: liveSession.coachId,
+          transactionId: existingTransaction.id,
+        },
+      });
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) {
+        throw e;
+      }
+    }
+  });
+
+  console.log(`[WEBHOOK] Checkout completed + ledger entries created: ${transactionId}`);
 }
 
 /**
