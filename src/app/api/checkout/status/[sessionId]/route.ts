@@ -54,32 +54,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // 6. Si paiement complété et pas encore traité
-    if (
-      checkoutSession.payment_status === 'paid' &&
-      transaction &&
-      transaction.status === 'PENDING'
-    ) {
-      // Mettre à jour la transaction
-      await prisma.transaction.update({
-        where: { id: transaction.id },
-        data: { status: 'COMPLETED' },
-      });
-
-      // Créer l'accès utilisateur si pas déjà fait
-      if (!transaction.userAccess) {
-        await prisma.userAccess.create({
-          data: {
-            userId: transaction.userId,
-            offerId: transaction.offerId,
-            sessionId: transaction.offer?.sessionId || null,
-            transactionId: transaction.id,
-            status: 'ACTIVE',
-            grantedAt: new Date(),
-          },
-        });
-      }
-    }
+    // IMPORTANT: access is created ONLY via webhook.
+    // This endpoint is read-only and exists for legacy flows / debugging.
 
     // 7. Retourner le statut
     return NextResponse.json({
@@ -88,7 +64,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       amountTotal: checkoutSession.amount_total,
       currency: checkoutSession.currency,
       transactionId: transaction?.id,
-      accessGranted: checkoutSession.payment_status === 'paid',
+      accessGranted: !!transaction?.userAccess && transaction.userAccess.status === 'ACTIVE',
     });
 
   } catch (error) {

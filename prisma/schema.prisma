@@ -207,12 +207,18 @@ enum TransactionProvider {
   MANUAL
   STRIPE
   PAYSTACK
+  // Provider abstraction (v2)
+  // - TWINT is implemented via Stripe payment method (Checkout/PaymentIntent)
+  // - MOBILE_MONEY is implemented via Paystack aggregator
+  TWINT
+  MOBILE_MONEY
 }
 
 enum TransactionStatus {
   PENDING
   COMPLETED
   FAILED
+  CANCELLED
   REFUNDED
 }
 

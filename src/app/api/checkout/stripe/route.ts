@@ -6,8 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/authConfig';
-import { stripe, isStripeEnabled } from '@/lib/stripe';
-import { prisma } from '@/lib/prisma';
+import { startCheckout, isProviderEnabled } from '@/lib/payments';
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,98 +19,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. Vérifier que Stripe est activé/configuré (safe mode)
-    if (!isStripeEnabled() || !stripe) {
-      return NextResponse.json(
-        { error: 'Stripe non configuré. Contactez l\'administrateur.' },
-        { status: 503 }
-      );
+    // Deprecated endpoint kept for backward compatibility.
+    // Prefer POST /api/checkout/start
+    if (!isProviderEnabled('STRIPE')) {
+      return NextResponse.json({ error: 'Stripe non configuré' }, { status: 503 });
     }
 
-    // 3. Parser la requête
-    const body = await request.json();
-    const { offerId, originUrl } = body;
-
-    if (!offerId || !originUrl) {
-      return NextResponse.json(
-        { error: 'offerId et originUrl requis' },
-        { status: 400 }
-      );
+    const origin = request.headers.get('origin');
+    if (!origin) {
+      return NextResponse.json({ error: 'Origin manquant' }, { status: 400 });
     }
 
-    // 4. Récupérer l'offre depuis la DB (JAMAIS depuis le frontend)
-    const offer = await prisma.offer.findUnique({
-      where: { id: offerId, isActive: true },
-      include: { session: { select: { title: true } } },
-    });
-
-    if (!offer) {
-      return NextResponse.json(
-        { error: 'Offre non trouvée ou inactive' },
-        { status: 404 }
-      );
+    const body = await request.json().catch(() => null);
+    const offerId = body?.offerId as string | undefined;
+    if (!offerId) {
+      return NextResponse.json({ error: 'offerId requis' }, { status: 400 });
     }
 
-    // 5. Créer la transaction PENDING en DB
-    const transaction = await prisma.transaction.create({
-      data: {
-        userId: session.user.id,
-        offerId: offer.id,
-        amount: offer.price,
-        currency: offer.currency,
-        provider: 'STRIPE',
-        status: 'PENDING',
-        metadata: {
-          offerName: offer.name,
-          sessionTitle: offer.session?.title || null,
-          userEmail: session.user.email,
-        },
-      },
+    const result = await startCheckout({
+      offerId,
+      provider: 'STRIPE',
+      userId: session.user.id,
+      userEmail: session.user.email || '',
+      origin,
     });
 
-    // 6. Construire les URLs de redirection
-    const successUrl = `${originUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl = `${originUrl}/checkout/cancel`;
-
-    // 7. Créer la Stripe Checkout Session
-    const checkoutSession = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      mode: 'payment',
-      line_items: [
-        {
-          price_data: {
-            currency: offer.currency.toLowerCase(),
-            product_data: {
-              name: offer.name,
-              description: offer.description || undefined,
-            },
-            unit_amount: offer.price, // Déjà en centimes
-          },
-          quantity: 1,
-        },
-      ],
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      customer_email: session.user.email || undefined,
-      metadata: {
-        transactionId: transaction.id,
-        offerId: offer.id,
-        userId: session.user.id,
-      },
-    });
-
-    // 8. Mettre à jour la transaction avec l'ID Stripe
-    await prisma.transaction.update({
-      where: { id: transaction.id },
-      data: { providerTxId: checkoutSession.id },
-    });
-
-    // 9. Retourner l'URL de checkout
-    return NextResponse.json({
-      url: checkoutSession.url,
-      sessionId: checkoutSession.id,
-      transactionId: transaction.id,
-    });
+    return NextResponse.json({ url: result.checkoutUrl, reference: result.providerReference });
 
   } catch (error) {
     console.error('[STRIPE CHECKOUT ERROR]', error);
