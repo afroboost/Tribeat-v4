@@ -13,6 +13,7 @@
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { isCoachOrAdmin, getAuthSession } from '@/lib/auth';
+import { requireCoachEntitlement } from '@/lib/access-control';
 import { z } from 'zod';
 import { SessionStatus, MediaType } from '@prisma/client';
 
@@ -105,6 +106,18 @@ export async function createSession(data: z.infer<typeof sessionSchema>) {
       return { success: false, error: 'Non autorisé' };
     }
 
+    // Enforce coach entitlement (subscription OR admin free-grant OR SUPER_ADMIN)
+    const authSession = await getAuthSession();
+    if (authSession?.user?.role === 'COACH') {
+      const entitlement = await requireCoachEntitlement({
+        coachId: authSession.user.id,
+        userRole: authSession.user.role,
+      });
+      if (!entitlement.allowed) {
+        return { success: false, error: 'Abonnement coach requis' };
+      }
+    }
+
     // Validation
     const validatedData = sessionSchema.parse(data);
 
@@ -195,6 +208,35 @@ export async function updateSession(id: string, data: Partial<z.infer<typeof ses
   }
 }
 
+/**
+ * Toggle chat availability for a session (SUPER_ADMIN only)
+ */
+export async function setSessionChatDisabled(sessionId: string, disabled: boolean) {
+  try {
+    const session = await getAuthSession();
+    if (!session) {
+      return { success: false, error: 'Non authentifié' };
+    }
+    if (session.user.role !== 'SUPER_ADMIN') {
+      return { success: false, error: 'Non autorisé' };
+    }
+
+    const updated = await prisma.session.update({
+      where: { id: sessionId },
+      data: { chatDisabled: disabled },
+      select: { id: true, chatDisabled: true },
+    });
+
+    revalidatePath('/admin/sessions');
+    revalidatePath(`/session/${sessionId}`);
+
+    return { success: true, data: updated };
+  } catch (error) {
+    console.error('Error toggling chat:', error);
+    return { success: false, error: 'Erreur lors de la mise à jour' };
+  }
+}
+
 // ========================================
 // DELETE
 // ========================================
@@ -255,6 +297,17 @@ export async function startSession(id: string) {
     const session = await getAuthSession();
     if (!session) {
       return { success: false, error: 'Non authentifié' };
+    }
+
+    // Enforce coach entitlement (subscription OR admin free-grant OR SUPER_ADMIN)
+    if (session.user.role === 'COACH') {
+      const entitlement = await requireCoachEntitlement({
+        coachId: session.user.id,
+        userRole: session.user.role,
+      });
+      if (!entitlement.allowed) {
+        return { success: false, error: 'Abonnement coach requis' };
+      }
     }
 
     const existingSession = await prisma.session.findUnique({
@@ -360,6 +413,24 @@ export async function joinSession(sessionId: string) {
 
     if (!liveSession) {
       return { success: false, error: 'Session introuvable' };
+    }
+
+    // Enforce access: participants must have ACTIVE access (SUPER_ADMIN/coach bypass)
+    if (session.user.role !== 'SUPER_ADMIN' && liveSession.coachId !== session.user.id) {
+      const access = await prisma.userAccess.findFirst({
+        where: {
+          userId: session.user.id,
+          status: 'ACTIVE',
+          AND: [
+            { OR: [{ sessionId }, { sessionId: null }] },
+            { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+          ],
+        },
+        select: { id: true },
+      });
+      if (!access) {
+        return { success: false, error: 'Accès requis pour rejoindre la session' };
+      }
     }
 
     // Vérifier si déjà participant

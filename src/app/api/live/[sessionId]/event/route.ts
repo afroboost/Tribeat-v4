@@ -14,6 +14,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/authConfig';
 import { prisma } from '@/lib/prisma';
 import { getPusherServer, getChannelName, LIVE_EVENTS, isPusherConfigured } from '@/lib/realtime/pusher';
+import { canAccessSession } from '@/lib/access-control';
 import { 
   getLiveState, 
   setPlayState, 
@@ -189,6 +190,19 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json(
         { error: 'Non authentifié', code: 'UNAUTHORIZED' },
         { status: 401 }
+      );
+    }
+
+    // Access check: coach/admin OR participant with access
+    const access = await canAccessSession({
+      sessionId,
+      userId: session.user.id,
+      userRole: session.user.role,
+    });
+    if (!access.allowed) {
+      return NextResponse.json(
+        { error: 'Accès non autorisé', code: 'FORBIDDEN' },
+        { status: 403 }
       );
     }
     

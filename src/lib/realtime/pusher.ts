@@ -107,6 +107,8 @@ export const LIVE_EVENTS = {
   SEEK: 'playback:seek',
   VOLUME: 'playback:volume',
   END: 'session:end',
+  CHAT_MESSAGE: 'chat:message',
+  LIKE_UPDATE: 'like:update',
   PARTICIPANT_JOINED: 'participant:joined',
   PARTICIPANT_LEFT: 'participant:left',
 } as const;

@@ -121,6 +121,5 @@ export const authOptions: AuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
   debug: true, // ACTIVÉ pour debug
   
-  // Trust proxy headers
-  trustHost: true,
+  // NOTE: `trustHost` is a NextAuth v5 option (not available in v4).
 };
