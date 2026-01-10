@@ -30,3 +30,20 @@ export async function getCoachEarnings(coachId: string, currency: string = 'CHF'
   return agg._sum.amount || 0;
 }
 
+/**
+ * Coach available balance derived from ledger:
+ * COACH_EARNING (positive) + PAYOUT (negative).
+ */
+export async function getCoachAvailableBalance(coachId: string, currency: string = 'CHF'): Promise<number> {
+  const agg = await prisma.ledgerEntry.aggregate({
+    where: {
+      currency,
+      userId: coachId,
+      type: { in: ['COACH_EARNING', 'PAYOUT'] },
+    },
+    _sum: { amount: true },
+  });
+
+  return agg._sum.amount || 0;
+}
+

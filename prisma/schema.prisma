@@ -44,6 +44,8 @@ model User {
   coachWallet             CoachWallet?
   sessionPayments         SessionPayment[]
   ledgerEntries           LedgerEntry[]
+  payouts                 Payout[]             @relation("CoachPayouts")
+  payoutsApproved         Payout[]             @relation("ApprovedPayouts")
 
   @@index([email])
 }
@@ -259,6 +261,31 @@ enum LedgerEntryType {
   PAYOUT
 }
 
+enum PayoutStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Payout {
+  id           String       @id @default(cuid())
+  coachId      String
+  amount       Int // positive cents requested; ledger entry stores negative amount
+  currency     String       @default("CHF")
+  status       PayoutStatus @default(PENDING)
+  createdAt    DateTime     @default(now())
+  approvedAt   DateTime?
+  approvedById String?
+
+  coach       User         @relation("CoachPayouts", fields: [coachId], references: [id], onDelete: Cascade)
+  approvedBy  User?        @relation("ApprovedPayouts", fields: [approvedById], references: [id], onDelete: SetNull)
+  ledgerEntry LedgerEntry?
+
+  @@index([coachId])
+  @@index([status])
+  @@index([createdAt])
+}
+
 model LedgerEntry {
   id            String          @id @default(cuid())
   type          LedgerEntryType
@@ -266,16 +293,20 @@ model LedgerEntry {
   currency      String          @default("CHF")
   userId        String?
   transactionId String?
+  payoutId      String?
   createdAt     DateTime        @default(now())
 
   user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
   transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  payout      Payout?      @relation(fields: [payoutId], references: [id], onDelete: SetNull)
 
   // Idempotence: at most 1 entry per transaction per type
   @@unique([transactionId, type])
+  @@unique([payoutId])
   @@index([type])
   @@index([userId])
   @@index([transactionId])
+  @@index([payoutId])
   @@index([createdAt])
 }
 
