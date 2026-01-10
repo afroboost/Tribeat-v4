@@ -9,6 +9,7 @@ import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { requireAdmin, logAdminAction } from '@/lib/auth-helpers';
 import { AccessStatus } from '@prisma/client';
+import { requireCoachEntitlement } from '@/lib/access-control';
 
 interface ActionResult {
   success: boolean;
@@ -230,8 +231,19 @@ export async function checkUserAccess(
       select: { role: true },
     });
 
-    if (user?.role === 'SUPER_ADMIN' || user?.role === 'COACH') {
-      return { hasAccess: true, reason: 'admin_or_coach' };
+    if (user?.role === 'SUPER_ADMIN') {
+      return { hasAccess: true, reason: 'super_admin' };
+    }
+
+    // COACH role is not enough: entitlement required
+    if (user?.role === 'COACH') {
+      const entitlement = await requireCoachEntitlement({
+        coachId: userId,
+        userRole: user.role,
+      });
+      if (entitlement.allowed) {
+        return { hasAccess: true, reason: entitlement.reason || 'coach_entitled' };
+      }
     }
 
     // Vérifier si la session est publique et live

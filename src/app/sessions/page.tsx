@@ -10,6 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Calendar, Users, Play, Clock } from 'lucide-react';
 
+export const dynamic = 'force-dynamic';
+
 export default async function SessionsPage() {
   const session = await getAuthSession();
 

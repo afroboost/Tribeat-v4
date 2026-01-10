@@ -17,6 +17,8 @@ import { ArrowLeft } from 'lucide-react';
 import { LiveSessionClient } from '@/components/session/LiveSessionClient';
 import { Suspense } from 'react';
 
+export const dynamic = 'force-dynamic';
+
 interface SessionPageProps {
   params: Promise<{ id: string }>;
 }

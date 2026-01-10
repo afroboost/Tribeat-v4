@@ -72,5 +72,7 @@ export function logAdminAction(
   userId: string,
   details?: Record<string, unknown>
 ): void {
-  console.log(`[ADMIN ACTION] ${new Date().toISOString()} | ${action} | User: ${userId}`, details || '');
+  void action;
+  void userId;
+  void details;
 }

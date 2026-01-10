@@ -73,7 +73,6 @@ export function getPusherClient(): PusherClient {
     
     // Debug logging
     _pusherClient.connection.bind('connected', () => {
-      console.log('[Pusher] Connecté - Socket ID:', _pusherClient?.connection.socket_id);
     });
     
     _pusherClient.connection.bind('error', (err: Error) => {
@@ -81,7 +80,6 @@ export function getPusherClient(): PusherClient {
     });
     
     _pusherClient.connection.bind('disconnected', () => {
-      console.log('[Pusher] Déconnecté');
     });
   }
   
@@ -107,6 +105,8 @@ export const LIVE_EVENTS = {
   SEEK: 'playback:seek',
   VOLUME: 'playback:volume',
   END: 'session:end',
+  CHAT_MESSAGE: 'chat:message',
+  LIKE_UPDATE: 'like:update',
   PARTICIPANT_JOINED: 'participant:joined',
   PARTICIPANT_LEFT: 'participant:left',
 } as const;

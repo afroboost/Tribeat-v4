@@ -14,6 +14,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/authConfig';
 import { prisma } from '@/lib/prisma';
 import { getPusherServer, getChannelName, LIVE_EVENTS, isPusherConfigured } from '@/lib/realtime/pusher';
+import { canAccessSession } from '@/lib/access-control';
+import { requireCoachEntitlement } from '@/lib/access-control';
 import { 
   getLiveState, 
   setPlayState, 
@@ -76,6 +78,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         { error: 'Seul le coach peut contrôler la session', code: 'FORBIDDEN' },
         { status: 403 }
       );
+    }
+
+    // If acting as coach (session owner), enforce entitlement (SUPER_ADMIN bypass)
+    if (isCoach && !isAdmin) {
+      const entitlement = await requireCoachEntitlement({
+        coachId: userId,
+        userRole,
+      });
+      if (!entitlement.allowed) {
+        return NextResponse.json(
+          { error: 'Accès coach requis', code: 'FORBIDDEN' },
+          { status: 403 }
+        );
+      }
     }
     
     // 4. Parser le payload
@@ -147,13 +163,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       
       await pusher.trigger(channelName, eventName, eventData);
       
-      console.log(`[LIVE] ${type.toUpperCase()} broadcast to ${channelName}`, {
-        sessionId,
-        userId,
-        latency: Date.now() - startTime,
-      });
+      void channelName;
     } else {
-      console.warn('[LIVE] Pusher non configuré - broadcast désactivé');
+      // no-op
     }
     
     // 7. Réponse avec métriques
@@ -189,6 +201,19 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json(
         { error: 'Non authentifié', code: 'UNAUTHORIZED' },
         { status: 401 }
+      );
+    }
+
+    // Access check: coach/admin OR participant with access
+    const access = await canAccessSession({
+      sessionId,
+      userId: session.user.id,
+      userRole: session.user.role,
+    });
+    if (!access.allowed) {
+      return NextResponse.json(
+        { error: 'Accès non autorisé', code: 'FORBIDDEN' },
+        { status: 403 }
       );
     }
     

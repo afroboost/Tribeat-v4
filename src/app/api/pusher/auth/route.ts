@@ -11,6 +11,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/authConfig';
 import { getPusherServer, isPusherConfigured } from '@/lib/realtime/pusher';
 import { prisma } from '@/lib/prisma';
+import { canAccessSession } from '@/lib/access-control';
 
 export async function POST(request: NextRequest) {
   try {
@@ -43,53 +44,25 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // 4. Pour les channels presence-session-*, vérifier l'accès
+    // 4. Pour les channels presence-session-*, vérifier l'accès (server-side)
     if (channelName.startsWith('presence-session-')) {
       const sessionId = channelName.replace('presence-session-', '');
       
-      // Vérifier que la session existe
-      const liveSession = await prisma.session.findUnique({
-        where: { id: sessionId },
-        select: { 
-          id: true, 
-          coachId: true, 
-          status: true,
-          isPublic: true,
-        },
+      // Hard check: coach/admin OR participant with access
+      const access = await canAccessSession({
+        sessionId,
+        userId: session.user.id,
+        userRole: session.user.role,
       });
-      
-      if (!liveSession) {
+
+      if (!access.allowed) {
         return NextResponse.json(
-          { error: 'Session introuvable' },
-          { status: 404 }
+          { error: 'Accès non autorisé à cette session' },
+          { status: 403 }
         );
       }
       
-      // Vérifier les droits d'accès
-      const isCoach = liveSession.coachId === session.user.id;
-      const isAdmin = session.user.role === 'SUPER_ADMIN';
-      
-      if (!liveSession.isPublic && !isCoach && !isAdmin) {
-        // Vérifier si participant inscrit
-        const isParticipant = await prisma.sessionParticipant.findUnique({
-          where: {
-            userId_sessionId: {
-              userId: session.user.id,
-              sessionId: sessionId,
-            },
-          },
-        });
-        
-        if (!isParticipant) {
-          return NextResponse.json(
-            { error: 'Accès non autorisé à cette session' },
-            { status: 403 }
-          );
-        }
-      }
-      
-      // Log l'accès
-      console.log(`[PUSHER AUTH] ${session.user.name} (${session.user.role}) → ${channelName}`);
+      void channelName;
     }
     
     // 5. Déterminer le rôle dans la session

@@ -17,6 +17,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Stripe not configured' }, { status: 503 });
     }
 
+    // Hard requirement in production
+    if (process.env.NODE_ENV === 'production' && !STRIPE_WEBHOOK_SECRET) {
+      console.error('[WEBHOOK] STRIPE_WEBHOOK_SECRET is required in production');
+      return NextResponse.json({ error: 'Stripe webhook not configured' }, { status: 503 });
+    }
+
     // 1. Récupérer le body raw et la signature
     const body = await request.text();
     const signature = request.headers.get('stripe-signature');
@@ -38,11 +44,8 @@ export async function POST(request: NextRequest) {
       }
     } else {
       // Mode dev sans webhook secret (accepter mais logger warning)
-      console.warn('[WEBHOOK] No webhook secret - skipping signature verification (DEV ONLY)');
       event = JSON.parse(body) as Stripe.Event;
     }
-
-    console.log(`[WEBHOOK] Event received: ${event.type}`);
 
     // 3. Traiter les événements
     switch (event.type) {
@@ -65,7 +68,7 @@ export async function POST(request: NextRequest) {
       }
 
       default:
-        console.log(`[WEBHOOK] Unhandled event type: ${event.type}`);
+        // no-op
     }
 
     return NextResponse.json({ received: true });
@@ -98,41 +101,100 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  if (existingTransaction.status === 'COMPLETED') {
-    console.log('[WEBHOOK] Transaction already completed - skipping');
-    return;
-  }
+  // Resolve coachId (if the offer is tied to a session)
+  const offer = existingTransaction.offerId
+    ? await prisma.offer.findUnique({
+        where: { id: existingTransaction.offerId },
+        select: { sessionId: true },
+      })
+    : null;
 
-  // Mettre à jour la transaction
-  await prisma.transaction.update({
-    where: { id: transactionId },
-    data: {
-      status: 'COMPLETED',
-      providerTxId: session.id,
-    },
-  });
+  const coach = offer?.sessionId
+    ? await prisma.session.findUnique({
+        where: { id: offer.sessionId },
+        select: { coachId: true },
+      })
+    : null;
 
-  // Créer l'accès utilisateur
-  if (!existingTransaction.userAccess) {
-    const offer = existingTransaction.offerId
-      ? await prisma.offer.findUnique({ where: { id: existingTransaction.offerId } })
-      : null;
+  // Revenue split (default 0% platform fee unless configured)
+  const feeBpsRaw = Number(process.env.PLATFORM_FEE_BPS ?? '0');
+  const feeBps = Number.isFinite(feeBpsRaw) ? Math.min(10000, Math.max(0, Math.trunc(feeBpsRaw))) : 0;
+  const platformRevenue = Math.round((existingTransaction.amount * feeBps) / 10000);
+  const coachEarning = existingTransaction.amount - platformRevenue;
 
-    await prisma.userAccess.create({
-      data: {
-        userId: existingTransaction.userId,
-        offerId: existingTransaction.offerId,
-        sessionId: offer?.sessionId || null,
-        transactionId: transactionId,
-        status: 'ACTIVE',
-        grantedAt: new Date(),
+  await prisma.$transaction(async (tx) => {
+    // Ensure transaction is marked completed (idempotent)
+    if (existingTransaction.status !== 'COMPLETED') {
+      await tx.transaction.update({
+        where: { id: transactionId },
+        data: {
+          status: 'COMPLETED',
+          providerTxId: session.id,
+        },
+      });
+    }
+
+    // Ensure SessionPayment is PAID (idempotent)
+    await tx.sessionPayment.upsert({
+      where: { transactionId },
+      create: {
+        transactionId,
+        stripeSessionId: session.id,
+        status: 'PAID',
+        amount: existingTransaction.amount,
+        currency: existingTransaction.currency,
+      },
+      update: {
+        stripeSessionId: session.id,
+        status: 'PAID',
+        amount: existingTransaction.amount,
+        currency: existingTransaction.currency,
       },
     });
 
-    console.log(`[WEBHOOK] Access granted for user ${existingTransaction.userId}`);
-  }
+    // Create access (idempotent: transactionId is unique in UserAccess)
+    if (!existingTransaction.userAccess) {
+      await tx.userAccess.create({
+        data: {
+          userId: existingTransaction.userId,
+          offerId: existingTransaction.offerId,
+          sessionId: offer?.sessionId || null,
+          transactionId: transactionId,
+          status: 'ACTIVE',
+          grantedAt: new Date(),
+        },
+      });
+    }
 
-  console.log(`[WEBHOOK] Checkout completed: ${transactionId}`);
+    // Ledger entries (idempotent via @@unique([transactionId, type]))
+    await tx.ledgerEntry.upsert({
+      where: { transactionId_type: { transactionId, type: 'PLATFORM_REVENUE' } },
+      create: {
+        transactionId,
+        type: 'PLATFORM_REVENUE',
+        amount: platformRevenue,
+        userId: null,
+      },
+      update: {
+        amount: platformRevenue,
+      },
+    });
+
+    await tx.ledgerEntry.upsert({
+      where: { transactionId_type: { transactionId, type: 'COACH_EARNING' } },
+      create: {
+        transactionId,
+        type: 'COACH_EARNING',
+        amount: coachEarning,
+        userId: coach?.coachId || null,
+      },
+      update: {
+        amount: coachEarning,
+        userId: coach?.coachId || null,
+      },
+    });
+  });
+
 }
 
 /**
@@ -148,13 +210,12 @@ async function handleCheckoutExpired(session: Stripe.Checkout.Session) {
     data: { status: 'FAILED' },
   });
 
-  console.log(`[WEBHOOK] Checkout expired: ${transactionId}`);
 }
 
 /**
  * Traiter un paiement échoué
  */
 async function handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
-  console.log(`[WEBHOOK] Payment failed: ${paymentIntent.id}`);
+  void paymentIntent;
   // Les transactions liées seront marquées FAILED via checkout.session.expired
 }
