@@ -9,6 +9,7 @@ import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { TransactionStatus, TransactionProvider } from '@prisma/client';
 import { requireAdmin, requireAuth, logAdminAction } from '@/lib/auth-helpers';
+import { getPlatformCommissionPercent, splitRevenue } from '@/lib/monetization';
 
 interface ActionResult {
   success: boolean;
@@ -129,6 +130,52 @@ export async function validateManualTransaction(
           grantedAt: new Date(),
         },
       });
+    }
+
+    // Revenue split + balances if offer is tied to a session
+    if (transaction.offer?.sessionId) {
+      const liveSession = await prisma.session.findUnique({
+        where: { id: transaction.offer.sessionId },
+        select: { coachId: true },
+      });
+      if (liveSession?.coachId) {
+        const pct = await getPlatformCommissionPercent();
+        const { platformCut, coachCut, commissionPercent } = splitRevenue(transaction.amount, pct);
+
+        await prisma.$transaction(async (db) => {
+          await db.sessionPayment.upsert({
+            where: { transactionId: transactionId },
+            update: { status: 'PAID', platformCut, coachCut, commissionPercent },
+            create: {
+              sessionId: transaction.offer!.sessionId!,
+              participantId: transaction.userId,
+              amount: transaction.amount,
+              currency: transaction.currency,
+              provider: transaction.provider,
+              status: 'PAID',
+              platformCut,
+              coachCut,
+              commissionPercent,
+              transactionId: transactionId,
+            },
+          });
+
+          await db.coachBalance.upsert({
+            where: { coachId: liveSession.coachId },
+            update: {
+              availableAmount: { increment: coachCut },
+              totalEarned: { increment: coachCut },
+            },
+            create: {
+              coachId: liveSession.coachId,
+              availableAmount: coachCut,
+              pendingAmount: 0,
+              totalEarned: coachCut,
+              currency: transaction.currency,
+            },
+          });
+        });
+      }
     }
 
     logAdminAction('VALIDATE_MANUAL_TRANSACTION', auth.userId!, {

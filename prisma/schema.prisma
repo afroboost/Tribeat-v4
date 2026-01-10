@@ -36,6 +36,9 @@ model User {
   messages         ChatMessage[]
   transactions     Transaction[]
   accesses         UserAccess[]
+  coachSubscriptions CoachSubscription[]
+  sessionPayments    SessionPayment[]  @relation("ParticipantSessionPayments")
+  coachBalance       CoachBalance?
 
   @@index([email])
 }
@@ -86,6 +89,7 @@ model Session {
   messages     ChatMessage[]
   offers       Offer[]
   accesses     UserAccess[]
+  payments     SessionPayment[]
 
   @@index([coachId])
   @@index([status])
@@ -222,6 +226,22 @@ enum TransactionStatus {
   REFUNDED
 }
 
+// ========================================
+// COACH SUBSCRIPTION (MONETIZATION)
+// ========================================
+
+enum CoachSubscriptionStatus {
+  ACTIVE
+  CANCELED
+  EXPIRED
+}
+
+enum SessionPaymentStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
 model Transaction {
   id              String              @id @default(cuid())
   userId          String
@@ -238,11 +258,66 @@ model Transaction {
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   offer      Offer?      @relation(fields: [offerId], references: [id], onDelete: SetNull)
   userAccess UserAccess?
+  sessionPayment SessionPayment?
 
   @@index([userId])
   @@index([offerId])
   @@index([status])
   @@index([providerTxId])
+}
+
+model CoachSubscription {
+  id                    String                 @id @default(cuid())
+  userId                String
+  status                CoachSubscriptionStatus
+  provider              TransactionProvider
+  providerSubscriptionId String?               @unique
+  currentPeriodStart    DateTime
+  currentPeriodEnd      DateTime
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+model SessionPayment {
+  id               String               @id @default(cuid())
+  sessionId         String
+  participantId     String
+  amount            Int                  // in cents
+  currency          String               @default("CHF")
+  provider          TransactionProvider
+  status            SessionPaymentStatus @default(PENDING)
+
+  // Revenue split (in cents)
+  platformCut       Int                  @default(0)
+  coachCut          Int                  @default(0)
+  commissionPercent Int                  @default(0)
+
+  transactionId     String?              @unique
+  createdAt         DateTime             @default(now())
+
+  session      Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  participant  User         @relation("ParticipantSessionPayments", fields: [participantId], references: [id], onDelete: Cascade)
+  transaction  Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([participantId])
+  @@index([status])
+}
+
+model CoachBalance {
+  coachId         String   @id
+  availableAmount Int      @default(0) // cents
+  pendingAmount   Int      @default(0) // cents
+  totalEarned     Int      @default(0) // cents
+  currency        String   @default("CHF")
+  updatedAt       DateTime @updatedAt
+
+  coach User @relation(fields: [coachId], references: [id], onDelete: Cascade)
 }
 
 // ========================================

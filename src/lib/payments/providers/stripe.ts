@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { stripe, isStripeEnabled, STRIPE_WEBHOOK_SECRET } from '@/lib/stripe';
 import type Stripe from 'stripe';
 import type { StartCheckoutInput, StartCheckoutResult } from '../types';
+import { ensureCoachBalance, getPlatformCommissionPercent, splitRevenue } from '@/lib/monetization';
 
 function isTwintEnabled(): boolean {
   return process.env.ENABLE_TWINT === 'true' && isStripeEnabled();
@@ -117,12 +118,106 @@ export async function handleStripeWebhook(request: Request) {
     event = JSON.parse(body) as Stripe.Event;
   }
 
-  if (event.type !== 'checkout.session.completed' && event.type !== 'checkout.session.expired') {
+  // Handle subscription lifecycle + one-time payments.
+  if (
+    event.type !== 'checkout.session.completed' &&
+    event.type !== 'checkout.session.expired' &&
+    event.type !== 'customer.subscription.updated' &&
+    event.type !== 'customer.subscription.deleted'
+  ) {
+    return { status: 200, body: { received: true } };
+  }
+
+  // Subscription update/delete events
+  if (event.type.startsWith('customer.subscription.')) {
+    const sub = event.data.object as Stripe.Subscription;
+    const providerSubscriptionId = sub.id;
+    const userId = (sub.metadata as any)?.userId as string | undefined;
+    if (!userId) return { status: 200, body: { received: true } };
+
+    const status =
+      event.type === 'customer.subscription.deleted'
+        ? 'CANCELED'
+        : sub.status === 'active'
+          ? 'ACTIVE'
+          : 'EXPIRED';
+
+    const item = sub.items?.data?.[0];
+    const currentPeriodStart = new Date(((item as any)?.current_period_start ?? sub.created) * 1000);
+    const currentPeriodEnd = new Date(((item as any)?.current_period_end ?? sub.created) * 1000);
+
+    await prisma.coachSubscription.upsert({
+      where: { providerSubscriptionId },
+      update: {
+        userId,
+        status: status as any,
+        provider: 'STRIPE',
+        currentPeriodStart,
+        currentPeriodEnd,
+      },
+      create: {
+        userId,
+        status: status as any,
+        provider: 'STRIPE',
+        providerSubscriptionId,
+        currentPeriodStart,
+        currentPeriodEnd,
+      },
+    });
+
+    // Ensure coach balance exists (even before any session payment)
+    await ensureCoachBalance(userId);
+
+    // Promote user to COACH only when subscription is ACTIVE
+    if (status === 'ACTIVE') {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { role: 'COACH' },
+      }).catch(() => null);
+    }
+
     return { status: 200, body: { received: true } };
   }
 
   const session = event.data.object as Stripe.Checkout.Session;
   const transactionId = session.metadata?.transactionId;
+  const kind = session.metadata?.kind; // 'coach_subscription' | undefined
+
+  // Coach subscription checkout completed (Stripe subscription via Checkout)
+  if (event.type === 'checkout.session.completed' && kind === 'coach_subscription') {
+    const userId = session.metadata?.userId;
+    const subscriptionId = session.subscription as string | null;
+    if (!userId || !subscriptionId) return { status: 200, body: { received: true } };
+
+    // Retrieve subscription to get period dates
+    const sub = await stripe.subscriptions.retrieve(subscriptionId);
+    const item = (sub as any).items?.data?.[0];
+    const currentPeriodStart = new Date(((item as any)?.current_period_start ?? sub.created) * 1000);
+    const currentPeriodEnd = new Date(((item as any)?.current_period_end ?? sub.created) * 1000);
+    await prisma.coachSubscription.upsert({
+      where: { providerSubscriptionId: subscriptionId },
+      update: {
+        userId,
+        status: 'ACTIVE',
+        provider: 'STRIPE',
+        currentPeriodStart,
+        currentPeriodEnd,
+      },
+      create: {
+        userId,
+        status: 'ACTIVE',
+        provider: 'STRIPE',
+        providerSubscriptionId: subscriptionId,
+        currentPeriodStart,
+        currentPeriodEnd,
+      },
+    });
+
+    await ensureCoachBalance(userId);
+    await prisma.user.update({ where: { id: userId }, data: { role: 'COACH' } }).catch(() => null);
+    return { status: 200, body: { received: true } };
+  }
+
   if (!transactionId) return { status: 200, body: { received: true } };
 
   // Idempotent: load tx + access
@@ -152,15 +247,63 @@ export async function handleStripeWebhook(request: Request) {
 
   // Access created only via webhook
   if (!tx.userAccess) {
-    await prisma.userAccess.create({
-      data: {
-        userId: tx.userId,
-        offerId: tx.offerId,
-        sessionId: tx.offer?.sessionId || null,
-        transactionId: tx.id,
-        status: 'ACTIVE',
-        grantedAt: new Date(),
-      },
+    await prisma.$transaction(async (db) => {
+      const access = await db.userAccess.create({
+        data: {
+          userId: tx.userId,
+          offerId: tx.offerId,
+          sessionId: tx.offer?.sessionId || null,
+          transactionId: tx.id,
+          status: 'ACTIVE',
+          grantedAt: new Date(),
+        },
+      });
+
+      // If offer is linked to a session, record session payment + update balances.
+      const sessionId = tx.offer?.sessionId;
+      if (sessionId) {
+        const liveSession = await db.session.findUnique({
+          where: { id: sessionId },
+          select: { coachId: true },
+        });
+        if (liveSession?.coachId) {
+          const pct = await getPlatformCommissionPercent();
+          const { platformCut, coachCut, commissionPercent } = splitRevenue(tx.amount, pct);
+
+          await db.sessionPayment.create({
+            data: {
+              sessionId,
+              participantId: tx.userId,
+              amount: tx.amount,
+              currency: tx.currency,
+              provider: tx.provider,
+              status: 'PAID',
+              platformCut,
+              coachCut,
+              commissionPercent,
+              transactionId: tx.id,
+            },
+          });
+
+          await db.coachBalance.upsert({
+            where: { coachId: liveSession.coachId },
+            update: {
+              availableAmount: { increment: coachCut },
+              totalEarned: { increment: coachCut },
+              // pendingAmount stays 0 until payouts phase
+            },
+            create: {
+              coachId: liveSession.coachId,
+              availableAmount: coachCut,
+              pendingAmount: 0,
+              totalEarned: coachCut,
+              currency: tx.currency,
+            },
+          });
+        }
+      }
+
+      return access;
     });
   }
 
