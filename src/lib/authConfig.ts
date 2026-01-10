@@ -17,6 +17,12 @@ export const authOptions: AuthOptions = {
     maxAge: 30 * 24 * 60 * 60,
   },
 
+  // Vercel/HTTPS: ensure secure cookies when served over HTTPS.
+  // (NextAuth v4 does not support `trustHost` — that is a v5 option.)
+  useSecureCookies:
+    (process.env.NEXTAUTH_URL?.startsWith('https://') ?? false) ||
+    process.env.VERCEL === '1',
+
   pages: {
     signIn: '/auth/login',
     error: '/auth/login',
