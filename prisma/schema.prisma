@@ -247,11 +247,12 @@ model Transaction {
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
 
-  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  offer          Offer?          @relation(fields: [offerId], references: [id], onDelete: SetNull)
-  userAccess     UserAccess?
-  sessionPayment SessionPayment?
-  ledgerEntries  LedgerEntry[]
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offer           Offer?           @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  userAccess      UserAccess?
+  sessionPayment  SessionPayment?
+  ledgerEntries   LedgerEntry[]
+  promoRedemption PromoRedemption?
 
   @@index([userId])
   @@index([offerId])
@@ -501,6 +502,8 @@ model PromoCode {
   startsAt       DateTime?
   endsAt         DateTime?
   maxRedemptions Int?
+  percentOff     Int? // required when type = PERCENT (1-100)
+  amountOff      Int? // required when type = FIXED (cents)
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -523,19 +526,25 @@ model PromoCode {
 }
 
 model PromoRedemption {
-  id          String        @id @default(cuid())
-  promoCodeId String
-  userId      String
-  redeemedAt  DateTime      @default(now())
-  promoType   PromoCodeType
-  sessionId   String?
+  id             String        @id @default(cuid())
+  promoCodeId    String
+  userId         String
+  redeemedAt     DateTime      @default(now())
+  promoType      PromoCodeType
+  sessionId      String?
+  transactionId  String?
+  discountAmount Int? // cents, optional audit
+  finalAmount    Int? // cents, optional audit
+  currency       String? // optional audit
 
-  promoCode PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  session   Session?  @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  promoCode   PromoCode    @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session     Session?     @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
 
   // 1 utilisation / user / code (Phase 1)
   @@unique([promoCodeId, userId])
+  @@unique([transactionId])
   @@index([userId])
   @@index([promoCodeId])
   @@index([redeemedAt])

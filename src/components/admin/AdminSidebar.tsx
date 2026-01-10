@@ -16,7 +16,9 @@ import {
   Download,
   Home,
   ShieldCheck,
-  CreditCard
+  CreditCard,
+  Ticket,
+  KeyRound
 } from 'lucide-react';
 
 const navigation = [
@@ -25,6 +27,8 @@ const navigation = [
   { name: 'Traductions', href: '/admin/translations', icon: Languages },
   { name: 'Sessions', href: '/admin/sessions', icon: Video },
   { name: 'Accès', href: '/admin/access', icon: ShieldCheck },
+  { name: 'Free Access', href: '/admin/free-access', icon: KeyRound },
+  { name: 'Promo Codes', href: '/admin/promo-codes', icon: Ticket },
   { name: 'Paiements', href: '/admin/payments', icon: CreditCard },
   { name: 'Utilisateurs', href: '/admin/users', icon: Users },
   { name: 'Export', href: '/admin/export', icon: Download },

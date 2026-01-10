@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Calendar, Users, Play, Clock } from 'lucide-react';
+import { checkUserAccess } from '@/actions/access';
 
 export default async function SessionsPage() {
   const session = await getAuthSession();
@@ -33,6 +34,14 @@ export default async function SessionsPage() {
     },
     orderBy: [{ status: 'asc' }, { scheduledAt: 'asc' }]
   }).catch(() => []);
+
+  const accessBySessionId = new Map<string, boolean>();
+  await Promise.all(
+    sessions.map(async (s) => {
+      const a = await checkUserAccess(session.user.id, s.id);
+      accessBySessionId.set(s.id, a.hasAccess);
+    })
+  );
 
   const statusLabels: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
     LIVE: { label: 'En direct', variant: 'destructive' },
@@ -91,11 +100,26 @@ export default async function SessionsPage() {
                     )}
                   </div>
                   <div className="text-sm text-gray-500">Coach : {s.coach.name}</div>
-                  <Link href={`/session/${s.id}`} className="block">
-                    <Button className="w-full" variant={s.status === 'LIVE' ? 'default' : 'outline'}>
-                      {s.status === 'LIVE' ? <><Play className="w-4 h-4 mr-2" />Rejoindre</> : 'Voir les détails'}
-                    </Button>
-                  </Link>
+                  {accessBySessionId.get(s.id) ? (
+                    <Link href={`/session/${s.id}`} className="block">
+                      <Button className="w-full" variant={s.status === 'LIVE' ? 'default' : 'outline'}>
+                        {s.status === 'LIVE' ? (
+                          <>
+                            <Play className="w-4 h-4 mr-2" />
+                            Rejoindre
+                          </>
+                        ) : (
+                          'Accéder'
+                        )}
+                      </Button>
+                    </Link>
+                  ) : (
+                    <Link href={`/sessions/${s.id}/buy`} className="block">
+                      <Button className="w-full" variant="outline">
+                        Acheter (code promo)
+                      </Button>
+                    </Link>
+                  )}
                 </CardContent>
               </Card>
             ))}

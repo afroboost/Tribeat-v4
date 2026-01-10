@@ -21,6 +21,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const updated = await prisma.promoCode.update({
       where: { id: promoCodeId },
       data: {
+        type: body?.type !== undefined ? (String(body.type) as any) : undefined,
         description: body?.description !== undefined ? (body.description ? String(body.description) : null) : undefined,
         isActive: body?.isActive !== undefined ? Boolean(body.isActive) : undefined,
         startsAt: body?.startsAt !== undefined ? (body.startsAt ? new Date(String(body.startsAt)) : null) : undefined,
@@ -31,6 +32,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
               ? null
               : Number(body.maxRedemptions)
             : undefined,
+        percentOff:
+          body?.percentOff !== undefined ? (body.percentOff === null ? null : Number(body.percentOff)) : undefined,
+        amountOff:
+          body?.amountOff !== undefined ? (body.amountOff === null ? null : Number(body.amountOff)) : undefined,
         sessionId: body?.sessionId !== undefined ? (body.sessionId ? String(body.sessionId) : null) : undefined,
       },
     });

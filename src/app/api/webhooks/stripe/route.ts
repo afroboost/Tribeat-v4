@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { stripe, STRIPE_WEBHOOK_SECRET } from '@/lib/stripe';
 import { prisma } from '@/lib/prisma';
 import Stripe from 'stripe';
-import { Prisma } from '@prisma/client';
+import { Prisma, PromoCodeType } from '@prisma/client';
 import { computeSplit } from '@/lib/wallet/walletService';
 
 export async function POST(request: NextRequest) {
@@ -211,6 +211,29 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     } catch (e) {
       if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) {
         throw e;
+      }
+    }
+
+    // Promo redemption (PERCENT/FIXED): consume on successful payment only (auditable)
+    const promoMeta = (existingTransaction.metadata as any)?.promo;
+    if (promoMeta?.promoCodeId) {
+      try {
+        await tx.promoRedemption.create({
+          data: {
+            promoCodeId: String(promoMeta.promoCodeId),
+            userId: existingTransaction.userId,
+            promoType: promoMeta.type as PromoCodeType,
+            sessionId: existingTransaction.offer?.sessionId || null,
+            transactionId: existingTransaction.id,
+            discountAmount: Number(promoMeta.discountAmount) || null,
+            finalAmount: Number(promoMeta.finalAmount) || null,
+            currency: existingTransaction.currency,
+          },
+        });
+      } catch (e) {
+        if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) {
+          throw e;
+        }
       }
     }
   });

@@ -35,14 +35,20 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const codeRaw = String(body?.code ?? '');
     const code = normalizeCode(codeRaw);
+    const type = body?.type ? String(body.type) : 'FULL_FREE';
 
     if (!code || code.length < 3) {
       return NextResponse.json({ error: 'Code invalide' }, { status: 400 });
     }
 
+    if (!['FULL_FREE', 'PERCENT', 'FIXED'].includes(type)) {
+      return NextResponse.json({ error: 'Type invalide' }, { status: 400 });
+    }
+
     const promo = await prisma.promoCode.create({
       data: {
         code,
+        type: type as any,
         description: body?.description ? String(body.description) : null,
         isActive: body?.isActive === false ? false : true,
         startsAt: body?.startsAt ? new Date(String(body.startsAt)) : null,
@@ -51,6 +57,8 @@ export async function POST(request: NextRequest) {
           body?.maxRedemptions === null || body?.maxRedemptions === undefined
             ? null
             : Number(body.maxRedemptions),
+        percentOff: body?.percentOff === undefined || body?.percentOff === null ? null : Number(body.percentOff),
+        amountOff: body?.amountOff === undefined || body?.amountOff === null ? null : Number(body.amountOff),
         sessionId: body?.sessionId ? String(body.sessionId) : null,
         createdById: session.user.id,
       },
