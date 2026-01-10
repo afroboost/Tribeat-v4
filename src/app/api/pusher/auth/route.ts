@@ -75,8 +75,7 @@ export async function POST(request: NextRequest) {
         );
       }
       
-      // Log l'accès
-      console.log(`[PUSHER AUTH] ${session.user.name} (${session.user.role}) → ${channelName}`);
+      // No debug logs in production.
     }
     
     // 5. Déterminer le rôle dans la session

@@ -25,13 +25,17 @@ export async function POST(_request: Request, { params }: RouteParams) {
   });
 
   if (isPusherConfigured()) {
-    const pusher = getPusherServer();
-    await pusher.trigger(getChannelName(sessionId), LIVE_EVENTS.LIKES_UPDATED, {
-      sessionId,
-      likesCount: updated.likesCount,
-      timestamp: Date.now(),
-      by: session.user.id,
-    });
+    try {
+      const pusher = getPusherServer();
+      await pusher.trigger(getChannelName(sessionId), LIVE_EVENTS.LIKES_UPDATED, {
+        sessionId,
+        likesCount: updated.likesCount,
+        timestamp: Date.now(),
+        by: session.user.id,
+      });
+    } catch (e) {
+      console.error('[ADMIN LIKES RESET] Pusher trigger failed:', e);
+    }
   }
 
   return NextResponse.json({ session: updated });

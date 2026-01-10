@@ -6,6 +6,8 @@ import { SessionList } from '@/components/admin/SessionList';
 import { getAllSessions } from '@/actions/sessions';
 import { getAllUsers } from '@/actions/users';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AdminSessionsPage() {
   const [sessionsResult, usersResult] = await Promise.all([
     getAllSessions().catch(() => ({ success: false, data: [] })),

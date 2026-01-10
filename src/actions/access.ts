@@ -203,15 +203,19 @@ export async function checkUserAccess(
       select: { role: true },
     });
 
-    if (user?.role === 'SUPER_ADMIN' || user?.role === 'COACH') {
-      return { hasAccess: true, reason: 'admin_or_coach' };
+    if (user?.role === 'SUPER_ADMIN') {
+      return { hasAccess: true, reason: 'super_admin' };
     }
 
-    // Vérifier si la session est publique et live
+    // Charger la session (et son coach) une fois
     const session = await prisma.session.findUnique({
       where: { id: sessionId },
-      select: { isPublic: true, status: true },
+      select: { isPublic: true, status: true, coachId: true },
     });
+
+    if (session?.coachId === userId) {
+      return { hasAccess: true, reason: 'coach_owner' };
+    }
 
     if (session?.isPublic && session?.status === 'LIVE') {
       return { hasAccess: true, reason: 'public_live_session' };

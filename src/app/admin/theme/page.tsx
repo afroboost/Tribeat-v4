@@ -5,6 +5,8 @@
 import { ThemeEditor } from '@/components/admin/ThemeEditor';
 import { getUISettingsByCategory } from '@/actions/ui-settings';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AdminThemePage() {
   const [themeResult, pwaResult] = await Promise.all([
     getUISettingsByCategory('THEME').catch(() => ({ success: false, data: [] })),

@@ -99,16 +99,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   });
 
   if (isPusherConfigured()) {
-    const pusher = getPusherServer();
-    await pusher.trigger(getChannelName(sessionId), LIVE_EVENTS.CHAT_MESSAGE, {
-      id: msg.id,
-      sessionId,
-      userId: msg.userId,
-      userName: msg.user.name,
-      userRole: msg.user.role,
-      content: msg.content,
-      timestamp: msg.timestamp,
-    });
+    try {
+      const pusher = getPusherServer();
+      await pusher.trigger(getChannelName(sessionId), LIVE_EVENTS.CHAT_MESSAGE, {
+        id: msg.id,
+        sessionId,
+        userId: msg.userId,
+        userName: msg.user.name,
+        userRole: msg.user.role,
+        content: msg.content,
+        timestamp: msg.timestamp,
+      });
+    } catch (e) {
+      // Best-effort realtime: message is persisted, clients will catch up on refresh/reconnect.
+      console.error('[LIVE CHAT] Pusher trigger failed:', e);
+    }
   }
 
   return NextResponse.json({ message: { id: msg.id } }, { status: 201 });

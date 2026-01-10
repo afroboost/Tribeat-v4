@@ -11,6 +11,8 @@ import { Badge } from '@/components/ui/badge';
 import { Calendar, Users, Play, Clock } from 'lucide-react';
 import { checkUserAccess } from '@/actions/access';
 
+export const dynamic = 'force-dynamic';
+
 export default async function SessionsPage() {
   const session = await getAuthSession();
 

@@ -18,7 +18,8 @@ import {
   ShieldCheck,
   CreditCard,
   Ticket,
-  KeyRound
+  KeyRound,
+  Activity
 } from 'lucide-react';
 
 const navigation = [
@@ -29,6 +30,7 @@ const navigation = [
   { name: 'Accès', href: '/admin/access', icon: ShieldCheck },
   { name: 'Free Access', href: '/admin/free-access', icon: KeyRound },
   { name: 'Promo Codes', href: '/admin/promo-codes', icon: Ticket },
+  { name: 'System Status', href: '/admin/system/status', icon: Activity },
   { name: 'Paiements', href: '/admin/payments', icon: CreditCard },
   { name: 'Utilisateurs', href: '/admin/users', icon: Users },
   { name: 'Export', href: '/admin/export', icon: Download },

@@ -39,12 +39,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
       }
     } else {
-      // Mode dev sans webhook secret (accepter mais logger warning)
-      console.warn('[WEBHOOK] No webhook secret - skipping signature verification (DEV ONLY)');
+      // Hard-fail safety: never accept unsigned webhooks in production.
+      if (process.env.NODE_ENV === 'production') {
+        return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 503 });
+      }
       event = JSON.parse(body) as Stripe.Event;
     }
-
-    console.log(`[WEBHOOK] Event received: ${event.type}`);
 
     // 3. Traiter les événements
     switch (event.type) {
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
       }
 
       default:
-        console.log(`[WEBHOOK] Unhandled event type: ${event.type}`);
+        // ignore
     }
 
     return NextResponse.json({ received: true });
@@ -138,10 +138,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
     // Money flow: only if offer is linked to a session
     const sessionId = existingTransaction.offer?.sessionId;
-    if (!sessionId) {
-      console.log('[WEBHOOK] No sessionId on offer - skipping wallets');
-      return;
-    }
+    if (!sessionId) return;
 
     const liveSession = await tx.session.findUnique({
       where: { id: sessionId },
@@ -238,7 +235,6 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     }
   });
 
-  console.log(`[WEBHOOK] Checkout completed + ledger entries created: ${transactionId}`);
 }
 
 /**
@@ -284,14 +280,12 @@ async function handleCheckoutExpired(session: Stripe.Checkout.Session) {
     }
   }
 
-  console.log(`[WEBHOOK] Checkout expired: ${transactionId}`);
 }
 
 /**
  * Traiter un paiement échoué
  */
 async function handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
-  console.log(`[WEBHOOK] Payment failed: ${paymentIntent.id}`);
   // Les transactions liées seront marquées FAILED via checkout.session.expired
 }
 
@@ -301,7 +295,6 @@ async function handleStripePayoutPaid(payout: Stripe.Payout) {
     where: { stripePayoutId: payout.id },
     data: { status: 'PAID', paidAt: new Date(), failureReason: null },
   });
-  console.log(`[WEBHOOK] Stripe payout paid: ${payout.id}`);
 }
 
 async function handleStripePayoutFailed(payout: Stripe.Payout) {
@@ -314,5 +307,4 @@ async function handleStripePayoutFailed(payout: Stripe.Payout) {
     where: { stripePayoutId: payout.id },
     data: { status: 'FAILED', failureReason: failureMessage },
   });
-  console.log(`[WEBHOOK] Stripe payout failed: ${payout.id}`);
 }

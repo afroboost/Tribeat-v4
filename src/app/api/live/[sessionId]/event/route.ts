@@ -127,9 +127,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         break;
     }
     
-    // 6. BROADCAST VIA PUSHER
+    // 6. BROADCAST VIA PUSHER (best-effort; never blocks state persistence)
     if (isPusherConfigured()) {
-      const pusher = getPusherServer();
       const channelName = getChannelName(sessionId);
       
       const eventName = {
@@ -146,15 +145,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         triggeredBy: userId,
       };
       
-      await pusher.trigger(channelName, eventName, eventData);
-      
-      console.log(`[LIVE] ${type.toUpperCase()} broadcast to ${channelName}`, {
-        sessionId,
-        userId,
-        latency: Date.now() - startTime,
-      });
-    } else {
-      console.warn('[LIVE] Pusher non configuré - broadcast désactivé');
+      try {
+        const pusher = getPusherServer();
+        await pusher.trigger(channelName, eventName, eventData);
+      } catch (e) {
+        // Degrade gracefully: DB state is already updated, so we only drop realtime broadcast.
+        console.error('[LIVE] Pusher trigger failed:', e);
+      }
     }
     
     // 7. Réponse avec métriques

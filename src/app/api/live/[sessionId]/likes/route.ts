@@ -89,12 +89,17 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
   }
 
   if (isPusherConfigured()) {
-    const pusher = getPusherServer();
-    await pusher.trigger(getChannelName(sessionId), LIVE_EVENTS.LIKES_UPDATED, {
-      sessionId,
-      likesCount: result.likesCount,
-      timestamp: Date.now(),
-    });
+    try {
+      const pusher = getPusherServer();
+      await pusher.trigger(getChannelName(sessionId), LIVE_EVENTS.LIKES_UPDATED, {
+        sessionId,
+        likesCount: result.likesCount,
+        timestamp: Date.now(),
+      });
+    } catch (e) {
+      // Best-effort realtime: counter is persisted, clients will catch up on refresh/reconnect.
+      console.error('[LIVE LIKES] Pusher trigger failed:', e);
+    }
   }
 
   return NextResponse.json({ likesCount: result.likesCount }, { status: 201 });

@@ -61,10 +61,7 @@ export const authOptions: AuthOptions & { trustHost?: boolean } = {
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        console.log('[AUTH] Tentative login:', credentials?.email);
-        
         if (!credentials?.email || !credentials?.password) {
-          console.log('[AUTH] Identifiants manquants');
           throw new Error('Identifiants manquants');
         }
 
@@ -73,18 +70,14 @@ export const authOptions: AuthOptions & { trustHost?: boolean } = {
         });
 
         if (!user || !user.password) {
-          console.log('[AUTH] User non trouvé:', credentials.email);
           throw new Error('Email ou mot de passe incorrect');
         }
 
         const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
 
         if (!isPasswordValid) {
-          console.log('[AUTH] Mot de passe invalide pour:', credentials.email);
           throw new Error('Email ou mot de passe incorrect');
         }
-
-        console.log('[AUTH] Login SUCCESS:', user.email, user.role);
         
         return {
           id: user.id,
@@ -103,7 +96,6 @@ export const authOptions: AuthOptions & { trustHost?: boolean } = {
         token.email = user.email;
         token.name = user.name;
         token.role = user.role;
-        console.log('[AUTH] JWT créé pour:', user.email);
       }
       return token;
     },
@@ -120,7 +112,7 @@ export const authOptions: AuthOptions & { trustHost?: boolean } = {
   },
 
   secret: process.env.NEXTAUTH_SECRET,
-  debug: true, // ACTIVÉ pour debug
+  debug: false,
   
   // Trust proxy headers
   trustHost: true,

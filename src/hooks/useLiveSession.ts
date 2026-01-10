@@ -144,7 +144,6 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
           }
         }
         
-        console.log('[LIVE] État récupéré depuis DB:', data.state);
       }
     } catch (error) {
       console.error('[LIVE] Erreur refresh state:', error);
@@ -186,8 +185,6 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
         const pusher = getPusherClient();
         const channelName = getChannelName(sessionId);
         
-        console.log('[LIVE] Connexion à', channelName);
-        
         channel = pusher.subscribe(channelName) as PresenceChannel;
         channelRef.current = channel;
         
@@ -206,8 +203,6 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
             });
           });
           setParticipants(memberList);
-          
-          console.log('[LIVE] Connecté -', memberList.length, 'participants');
           
           // Récupérer l'état depuis la DB
           refreshState();
@@ -231,13 +226,11 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
               role: member.info?.role || 'PARTICIPANT',
             }];
           });
-          console.log('[LIVE] Participant rejoint:', member.info?.name);
         });
         
         // Membre parti
         channel.bind('pusher:member_removed', (member: { id: string }) => {
           setParticipants(prev => prev.filter(p => p.id !== member.id));
-          console.log('[LIVE] Participant parti:', member.id);
         });
         
         // ========================================
@@ -245,7 +238,6 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
         // ========================================
         
         channel.bind(LIVE_EVENTS.PLAY, (data: LiveState & { timestamp: number }) => {
-          console.log('[LIVE] PLAY reçu:', data);
           setLiveState(prev => ({ ...prev, ...data, isPlaying: true }));
           
           const audioEngine = audioEngineRef.current;
@@ -256,7 +248,6 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
         });
         
         channel.bind(LIVE_EVENTS.PAUSE, (data: LiveState & { timestamp: number }) => {
-          console.log('[LIVE] PAUSE reçu:', data);
           setLiveState(prev => ({ ...prev, ...data, isPlaying: false }));
           
           const audioEngine = audioEngineRef.current;
@@ -267,7 +258,6 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
         });
         
         channel.bind(LIVE_EVENTS.SEEK, (data: LiveState & { timestamp: number }) => {
-          console.log('[LIVE] SEEK reçu:', data);
           setLiveState(prev => ({ ...prev, ...data }));
           
           const audioEngine = audioEngineRef.current;
@@ -277,7 +267,6 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
         });
         
         channel.bind(LIVE_EVENTS.VOLUME, (data: LiveState & { timestamp: number }) => {
-          console.log('[LIVE] VOLUME reçu:', data);
           setLiveState(prev => ({ ...prev, ...data }));
           
           const audioEngine = audioEngineRef.current;
@@ -287,7 +276,6 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
         });
         
         channel.bind(LIVE_EVENTS.END, () => {
-          console.log('[LIVE] SESSION TERMINÉE');
           setLiveState(prev => prev ? { ...prev, isPlaying: false } : null);
           
           const audioEngine = audioEngineRef.current;
@@ -387,8 +375,6 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
       }
       
       const result = await response.json();
-      console.log(`[LIVE] ${type} envoyé - processing: ${result.metrics?.processingTime}ms`);
-      
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erreur inconnue';
       onError?.(message);

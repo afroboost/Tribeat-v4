@@ -25,13 +25,17 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   });
 
   if (isPusherConfigured()) {
-    const pusher = getPusherServer();
-    await pusher.trigger(getChannelName(sessionId), LIVE_EVENTS.CHAT_STATUS, {
-      sessionId,
-      chatEnabled: updated.chatEnabled,
-      timestamp: Date.now(),
-      by: session.user.id,
-    });
+    try {
+      const pusher = getPusherServer();
+      await pusher.trigger(getChannelName(sessionId), LIVE_EVENTS.CHAT_STATUS, {
+        sessionId,
+        chatEnabled: updated.chatEnabled,
+        timestamp: Date.now(),
+        by: session.user.id,
+      });
+    } catch (e) {
+      console.error('[ADMIN CHAT] Pusher trigger failed:', e);
+    }
   }
 
   return NextResponse.json({ session: updated });

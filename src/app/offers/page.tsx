@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { redirect } from 'next/navigation';
 import { OffersCheckoutClient } from './ui';
 
+export const dynamic = 'force-dynamic';
+
 export default async function OffersPage() {
   const session = await getAuthSession();
   if (!session?.user?.id) {

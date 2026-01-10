@@ -5,6 +5,8 @@
 import { TranslationEditor } from '@/components/admin/TranslationEditor';
 import { getAllTranslations } from '@/actions/translations';
 
+export const dynamic = 'force-dynamic';
+
 export default async function AdminTranslationsPage() {
   const result = await getAllTranslations().catch(() => ({ success: false, data: [] }));
   const translations = result.success ? (result.data || []) : [];

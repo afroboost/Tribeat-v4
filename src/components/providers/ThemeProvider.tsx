@@ -52,7 +52,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {
         // Erreur API → utiliser thème par défaut
-        console.log('Theme API unavailable, using defaults');
       });
   }, []);
 
