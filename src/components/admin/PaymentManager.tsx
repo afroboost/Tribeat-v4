@@ -52,9 +52,10 @@ interface PaymentManagerProps {
   transactions: Transaction[];
   stats: Stats;
   users: User[];
+  stripeEnabled: boolean;
 }
 
-export function PaymentManager({ transactions: initialTransactions, stats, users }: PaymentManagerProps) {
+export function PaymentManager({ transactions: initialTransactions, stats, users, stripeEnabled }: PaymentManagerProps) {
   const [transactions, setTransactions] = useState(initialTransactions);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showOfferForm, setShowOfferForm] = useState(false);
@@ -417,11 +418,21 @@ export function PaymentManager({ transactions: initialTransactions, stats, users
       {/* Note Stripe */}
       <Card className="bg-blue-50 border-blue-200">
         <CardContent className="pt-6">
-          <h4 className="font-semibold text-blue-800">✅ Stripe configuré</h4>
-          <p className="text-sm text-blue-700 mt-1">
-            Les paiements Stripe sont actifs. Les utilisateurs peuvent payer via les offres publiques.
-            Les transactions manuelles nécessitent une validation admin.
-          </p>
+          {stripeEnabled ? (
+            <>
+              <h4 className="font-semibold text-blue-800">✅ Stripe configuré</h4>
+              <p className="text-sm text-blue-700 mt-1">
+                Stripe est activé. Les routes API Stripe sont disponibles.
+              </p>
+            </>
+          ) : (
+            <>
+              <h4 className="font-semibold text-blue-800">ℹ️ Stripe non configuré</h4>
+              <p className="text-sm text-blue-700 mt-1">
+                Stripe est désactivé (feature flag ou clés manquantes). Les paiements Stripe sont indisponibles, sans impacter les transactions manuelles.
+              </p>
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

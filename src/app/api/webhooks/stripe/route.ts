@@ -6,15 +6,15 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { stripe, STRIPE_WEBHOOK_SECRET } from '@/lib/stripe';
+import { stripe, STRIPE_WEBHOOK_SECRET, isStripeEnabled } from '@/lib/stripe';
 import { prisma } from '@/lib/prisma';
 import Stripe from 'stripe';
 
 export async function POST(request: NextRequest) {
   try {
-    if (!stripe) {
-      console.error('[WEBHOOK] Stripe not configured');
-      return NextResponse.json({ error: 'Stripe not configured' }, { status: 503 });
+    if (!isStripeEnabled() || !stripe) {
+      console.error('[WEBHOOK] Stripe disabled or not configured');
+      return NextResponse.json({ error: 'Stripe disabled' }, { status: 503 });
     }
 
     // 1. Récupérer le body raw et la signature

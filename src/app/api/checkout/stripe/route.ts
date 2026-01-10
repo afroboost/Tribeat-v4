@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/authConfig';
-import { stripe, isStripeConfigured } from '@/lib/stripe';
+import { stripe, isStripeEnabled } from '@/lib/stripe';
 import { prisma } from '@/lib/prisma';
 
 export async function POST(request: NextRequest) {
@@ -20,8 +20,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. Vérifier que Stripe est configuré
-    if (!isStripeConfigured() || !stripe) {
+    // 2. Vérifier que Stripe est activé/configuré (safe mode)
+    if (!isStripeEnabled() || !stripe) {
       return NextResponse.json(
         { error: 'Stripe non configuré. Contactez l\'administrateur.' },
         { status: 503 }

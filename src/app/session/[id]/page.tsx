@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { LiveSessionClient } from '@/components/session/LiveSessionClient';
 import { Suspense } from 'react';
+import { isPusherConfigured } from '@/lib/realtime/pusher';
 
 export const dynamic = 'force-dynamic';
 
@@ -170,6 +171,7 @@ export default async function SessionPage({ params }: SessionPageProps) {
             participants={liveSession.participants}
             currentUserId={authSession.user.id}
             currentUserRole={authSession.user.role}
+            realtimeEnabled={process.env.ENABLE_LIVE === 'true' && isPusherConfigured()}
           />
         </Suspense>
       </main>

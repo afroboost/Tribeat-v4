@@ -5,6 +5,7 @@
 import { getTransactions, getPaymentStats } from '@/actions/payments';
 import { prisma } from '@/lib/prisma';
 import { PaymentManager } from '@/components/admin/PaymentManager';
+import { isStripeEnabled } from '@/lib/stripe';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,7 +46,8 @@ export default async function PaymentsPage() {
       <PaymentManager 
         transactions={transactions} 
         stats={stats}
-        users={users} 
+        users={users}
+        stripeEnabled={isStripeEnabled()}
       />
     </div>
   );

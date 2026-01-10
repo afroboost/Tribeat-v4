@@ -38,6 +38,7 @@ export interface UseLiveSessionOptions {
   userName: string;
   userRole: 'COACH' | 'PARTICIPANT' | 'SUPER_ADMIN';
   mediaUrl?: string | null;
+  realtimeEnabled?: boolean;
   onError?: (error: string) => void;
 }
 
@@ -78,7 +79,7 @@ function safeNumber(value: unknown, fallback: number) {
 // ========================================
 
 export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionReturn {
-  const { sessionId, userId, userName, userRole, mediaUrl, onError } = options;
+  const { sessionId, userId, userName, userRole, mediaUrl, onError, realtimeEnabled = true } = options;
   
   // Refs
   const channelRef = useRef<PresenceChannel | null>(null);
@@ -147,7 +148,7 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
         if (audioEngine && !isCoach) {
           audioEngine.setVolume(data.state.volume);
           audioEngine.seek(data.state.currentTime);
-          if (data.state.isPlaying) {
+          if (realtimeEnabled && data.state.isPlaying) {
             audioEngine.play();
           } else {
             audioEngine.pause();
@@ -165,7 +166,7 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
       onError?.(message);
       console.error('[LIVE] Erreur refresh state:', error);
     }
-  }, [sessionId, isCoach, debug, onError]);
+  }, [sessionId, isCoach, debug, onError, realtimeEnabled]);
   
   // ========================================
   // PUSHER CONNECTION
@@ -176,11 +177,17 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
     
     const connectPusher = async () => {
       try {
+        // Always hydrate from DB first (source of truth)
+        await refreshState(realtimeEnabled ? 'join:pre-subscribe' : 'join:realtime-disabled');
+
+        if (!realtimeEnabled) {
+          setIsConnected(false);
+          setConnectionError('Live sync unavailable');
+          return;
+        }
+
         const pusher = getPusherClient();
         const channelName = getChannelName(sessionId);
-        
-        // DB = source of truth: hydrater AVANT de s'abonner (late join safe)
-        await refreshState('join:pre-subscribe');
 
         if (debug) {
           console.log('[LIVE] Connexion à', channelName);
@@ -358,7 +365,7 @@ export function useLiveSession(options: UseLiveSessionOptions): UseLiveSessionRe
         // ignore
       }
     };
-  }, [sessionId, isCoach, refreshState, onError, debug, applyIncomingState]);
+  }, [sessionId, isCoach, refreshState, onError, debug, applyIncomingState, realtimeEnabled]);
   
   // ========================================
   // AUDIO ENGINE

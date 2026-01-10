@@ -48,6 +48,7 @@ interface LiveSessionClientProps {
   participants: Participant[];
   currentUserId: string;
   currentUserRole: string;
+  realtimeEnabled?: boolean;
 }
 
 export function LiveSessionClient({
@@ -59,6 +60,7 @@ export function LiveSessionClient({
   participants: initialParticipants,
   currentUserId,
   currentUserRole,
+  realtimeEnabled = true,
 }: LiveSessionClientProps) {
   
   // Déterminer le rôle
@@ -86,6 +88,7 @@ export function LiveSessionClient({
     userName: isCoachUser ? coach.name : 'Participant',
     userRole: userRole as 'COACH' | 'PARTICIPANT',
     mediaUrl,
+    realtimeEnabled,
     onError: (error) => toast.error(error),
   });
   
@@ -119,6 +122,11 @@ export function LiveSessionClient({
   
   return (
     <div className="space-y-6" data-testid="live-session-container">
+      {!realtimeEnabled && (
+        <div className="rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-900">
+          Live sync unavailable (Pusher désactivé ou non configuré). La session reste accessible, mais la synchronisation temps réel est indisponible.
+        </div>
+      )}
       {/* Status Bar */}
       <div className="flex items-center justify-between">
         <LiveStatus
@@ -223,6 +231,7 @@ export function LiveSessionClient({
                   audioState={audioState}
                   volume={volume}
                   sessionTitle={sessionTitle}
+                  syncAvailable={realtimeEnabled && isConnected}
                 />
               )}
             </>
