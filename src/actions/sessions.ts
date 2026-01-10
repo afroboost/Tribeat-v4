@@ -334,6 +334,49 @@ export async function endSessionAction(id: string) {
       },
     });
 
+    // Money flow: on fin de session, déplacer pending -> available pour ce coach (uniquement les paiements de cette session)
+    await prisma.$transaction(async (tx) => {
+      const sum = await tx.sessionPayment.aggregate({
+        where: {
+          sessionId: id,
+          status: 'PAID',
+          releasedToCoachAt: null,
+        },
+        _sum: { coachCut: true },
+      });
+
+      const coachCutTotal = sum._sum.coachCut || 0;
+      if (coachCutTotal <= 0) return;
+
+      // Locking isn't available on sqlite; we rely on atomic updates + releasedToCoachAt marker.
+      const wallet = await tx.coachWallet.findUnique({
+        where: { coachId: existingSession.coachId },
+        select: { id: true },
+      });
+
+      if (!wallet) {
+        // If wallet doesn't exist, nothing to release (should not happen if there were payments)
+        return;
+      }
+
+      await tx.coachWallet.update({
+        where: { coachId: existingSession.coachId },
+        data: {
+          pendingAmount: { decrement: coachCutTotal },
+          availableAmount: { increment: coachCutTotal },
+        },
+      });
+
+      await tx.sessionPayment.updateMany({
+        where: {
+          sessionId: id,
+          status: 'PAID',
+          releasedToCoachAt: null,
+        },
+        data: { releasedToCoachAt: new Date() },
+      });
+    });
+
     revalidatePath('/admin/sessions');
     revalidatePath('/sessions');
     revalidatePath(`/session/${id}`);

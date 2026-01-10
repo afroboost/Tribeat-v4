@@ -87,52 +87,149 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  // Vérifier si déjà traité (idempotence)
-  const existingTransaction = await prisma.transaction.findUnique({
-    where: { id: transactionId },
-    include: { userAccess: true },
+  // Idempotence: on considère "wallet traité" si un SessionPayment existe déjà
+  const existingPayment = await prisma.sessionPayment.findUnique({
+    where: { transactionId },
+    select: { id: true },
   });
 
-  if (!existingTransaction) {
-    console.error('[WEBHOOK] Transaction not found:', transactionId);
+  if (existingPayment) {
+    console.log('[WEBHOOK] SessionPayment already exists - skipping');
     return;
   }
 
-  if (existingTransaction.status === 'COMPLETED') {
-    console.log('[WEBHOOK] Transaction already completed - skipping');
-    return;
-  }
+  await prisma.$transaction(async (tx) => {
+    // Charger transaction + offer/session pour split
+    const existingTransaction = await tx.transaction.findUnique({
+      where: { id: transactionId },
+      include: { userAccess: true, offer: true },
+    });
 
-  // Mettre à jour la transaction
-  await prisma.transaction.update({
-    where: { id: transactionId },
-    data: {
-      status: 'COMPLETED',
-      providerTxId: session.id,
-    },
-  });
+    if (!existingTransaction) {
+      console.error('[WEBHOOK] Transaction not found:', transactionId);
+      return;
+    }
 
-  // Créer l'accès utilisateur
-  if (!existingTransaction.userAccess) {
-    const offer = existingTransaction.offerId
-      ? await prisma.offer.findUnique({ where: { id: existingTransaction.offerId } })
-      : null;
-
-    await prisma.userAccess.create({
+    // Marquer transaction COMPLETED (même si déjà fait ailleurs, on upsert de manière sûre)
+    await tx.transaction.update({
+      where: { id: transactionId },
       data: {
-        userId: existingTransaction.userId,
-        offerId: existingTransaction.offerId,
-        sessionId: offer?.sessionId || null,
-        transactionId: transactionId,
-        status: 'ACTIVE',
-        grantedAt: new Date(),
+        status: 'COMPLETED',
+        providerTxId: session.id,
       },
     });
 
-    console.log(`[WEBHOOK] Access granted for user ${existingTransaction.userId}`);
-  }
+    // Créer UserAccess si absent (ne touche pas les wallets)
+    if (!existingTransaction.userAccess) {
+      await tx.userAccess.create({
+        data: {
+          userId: existingTransaction.userId,
+          offerId: existingTransaction.offerId,
+          sessionId: existingTransaction.offer?.sessionId || null,
+          transactionId: transactionId,
+          status: 'ACTIVE',
+          grantedAt: new Date(),
+        },
+      });
+    }
 
-  console.log(`[WEBHOOK] Checkout completed: ${transactionId}`);
+    // Money flow: only if offer is linked to a session
+    const sessionId = existingTransaction.offer?.sessionId;
+    if (!sessionId) {
+      console.log('[WEBHOOK] No sessionId on offer - skipping wallets');
+      return;
+    }
+
+    const liveSession = await tx.session.findUnique({
+      where: { id: sessionId },
+      select: { id: true, coachId: true },
+    });
+
+    if (!liveSession) {
+      console.error('[WEBHOOK] Session not found for payment:', sessionId);
+      return;
+    }
+
+    const amount = existingTransaction.amount;
+    const currency = existingTransaction.currency;
+
+    // Commission: env percent, default 20%
+    const percentRaw = process.env.PLATFORM_COMMISSION_PERCENT;
+    const parsedPercent = percentRaw ? Number(percentRaw) : NaN;
+    const platformPercent =
+      Number.isFinite(parsedPercent) && parsedPercent >= 0 && parsedPercent <= 100 ? parsedPercent : 20;
+    const platformCut = Math.round((amount * platformPercent) / 100);
+    const coachCut = amount - platformCut;
+
+    // Platform wallet (singleton-ish): one per currency
+    const platformWallet = await tx.platformWallet.findFirst({
+      where: { currency },
+      select: { id: true },
+    });
+    const platformWalletId = platformWallet?.id;
+
+    if (platformWalletId) {
+      await tx.platformWallet.update({
+        where: { id: platformWalletId },
+        data: {
+          balance: { increment: platformCut },
+          commissionTotal: { increment: platformCut },
+        },
+      });
+    } else {
+      await tx.platformWallet.create({
+        data: {
+          currency,
+          balance: platformCut,
+          commissionTotal: platformCut,
+        },
+      });
+    }
+
+    // Coach wallet: unique per coach (foundation = single currency enforced)
+    const existingWallet = await tx.coachWallet.findUnique({
+      where: { coachId: liveSession.coachId },
+      select: { id: true, currency: true },
+    });
+
+    if (existingWallet && existingWallet.currency !== currency) {
+      throw new Error('COACH_WALLET_CURRENCY_MISMATCH');
+    }
+
+    if (existingWallet) {
+      await tx.coachWallet.update({
+        where: { coachId: liveSession.coachId },
+        data: {
+          pendingAmount: { increment: coachCut },
+        },
+      });
+    } else {
+      await tx.coachWallet.create({
+        data: {
+          coachId: liveSession.coachId,
+          currency,
+          pendingAmount: coachCut,
+        },
+      });
+    }
+
+    // SessionPayment record (idempotence gate)
+    await tx.sessionPayment.create({
+      data: {
+        sessionId: liveSession.id,
+        participantId: existingTransaction.userId,
+        transactionId: existingTransaction.id,
+        amount,
+        platformCut,
+        coachCut,
+        currency,
+        status: 'PAID',
+        paidAt: new Date(),
+      },
+    });
+  });
+
+  console.log(`[WEBHOOK] Checkout completed + wallets updated: ${transactionId}`);
 }
 
 /**
@@ -147,6 +244,35 @@ async function handleCheckoutExpired(session: Stripe.Checkout.Session) {
     where: { id: transactionId },
     data: { status: 'FAILED' },
   });
+
+  // Foundation: enregistrer un échec de paiement pour session, sans toucher aux wallets
+  const existingPayment = await prisma.sessionPayment.findUnique({
+    where: { transactionId },
+    select: { id: true },
+  });
+
+  if (!existingPayment) {
+    const tx = await prisma.transaction.findUnique({
+      where: { id: transactionId },
+      include: { offer: true },
+    });
+
+    const sessionId = tx?.offer?.sessionId;
+    if (tx && sessionId) {
+      await prisma.sessionPayment.create({
+        data: {
+          sessionId,
+          participantId: tx.userId,
+          transactionId: tx.id,
+          amount: tx.amount,
+          platformCut: 0,
+          coachCut: 0,
+          currency: tx.currency,
+          status: 'FAILED',
+        },
+      });
+    }
+  }
 
   console.log(`[WEBHOOK] Checkout expired: ${transactionId}`);
 }

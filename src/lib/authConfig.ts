@@ -9,7 +9,8 @@ import { PrismaAdapter } from '@next-auth/prisma-adapter';
 import { prisma } from '@/lib/prisma';
 import * as bcrypt from 'bcryptjs';
 
-export const authOptions: AuthOptions = {
+// NOTE: `trustHost` is not part of next-auth v4 types, but is used in some proxy deployments.
+export const authOptions: AuthOptions & { trustHost?: boolean } = {
   adapter: PrismaAdapter(prisma),
 
   session: {

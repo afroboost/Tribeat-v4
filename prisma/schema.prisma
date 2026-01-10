@@ -41,6 +41,8 @@ model User {
   freeAccessGrants        FreeAccessGrant[]    @relation("FreeAccessGrantsUser")
   freeAccessGrantsGranted FreeAccessGrant[]    @relation("FreeAccessGrantsGrantedBy")
   freeAccessGrantsRevoked FreeAccessGrant[]    @relation("FreeAccessGrantsRevokedBy")
+  coachWallet             CoachWallet?
+  sessionPayments         SessionPayment[]
 
   @@index([email])
 }
@@ -94,6 +96,7 @@ model Session {
   promoCodes       PromoCode[]
   freeAccessGrants FreeAccessGrant[]
   promoRedemptions PromoRedemption[]
+  sessionPayments  SessionPayment[]
 
   @@index([coachId])
   @@index([status])
@@ -237,14 +240,79 @@ model Transaction {
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
 
-  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  offer      Offer?      @relation(fields: [offerId], references: [id], onDelete: SetNull)
-  userAccess UserAccess?
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offer          Offer?          @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  userAccess     UserAccess?
+  sessionPayment SessionPayment?
 
   @@index([userId])
   @@index([offerId])
   @@index([status])
   @@index([providerTxId])
+}
+
+// ========================================
+// WALLET & MONEY FLOW (FOUNDATION ONLY)
+// ========================================
+
+model CoachWallet {
+  id              String   @id @default(cuid())
+  coachId         String   @unique
+  availableAmount Int      @default(0) // cents
+  pendingAmount   Int      @default(0) // cents
+  paidAmount      Int      @default(0) // cents (future payouts)
+  currency        String   @default("CHF")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  coach User @relation(fields: [coachId], references: [id], onDelete: Cascade)
+
+  @@index([coachId])
+}
+
+model PlatformWallet {
+  id              String   @id @default(cuid())
+  balance         Int      @default(0) // cents
+  commissionTotal Int      @default(0) // cents
+  currency        String   @default("CHF")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([currency])
+}
+
+enum SessionPaymentStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+model SessionPayment {
+  id            String @id @default(cuid())
+  sessionId     String
+  participantId String
+  transactionId String @unique
+
+  amount      Int // cents
+  platformCut Int // cents
+  coachCut    Int // cents
+  currency    String               @default("CHF")
+  status      SessionPaymentStatus @default(PENDING)
+
+  paidAt            DateTime?
+  releasedToCoachAt DateTime? // set when session ends and pending -> available
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  session     Session     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  participant User        @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([participantId])
+  @@index([status])
+  @@index([paidAt])
+  @@index([releasedToCoachAt])
 }
 
 // ========================================
