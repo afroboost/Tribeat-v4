@@ -1,9 +1,6 @@
-'use client';
-
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { Toaster } from 'sonner';
-import { useSession, signOut } from 'next-auth/react';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -12,12 +9,10 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { data: session, status } = useSession();
-
   return (
     <html lang="fr">
       <body className={inter.className}>
-        {/* 🔴 BARRE GLOBALE TOUJOURS VISIBLE */}
+        {/* BARRE GLOBALE SIMPLE */}
         <div
           style={{
             padding: '10px 14px',
@@ -29,34 +24,24 @@ export default function RootLayout({
             fontSize: 13,
           }}
         >
-          <span>
-            {status === 'loading'
-              ? 'Chargement…'
-              : session
-              ? `Connecté : ${session.user?.email}`
-              : 'Non connecté'}
-          </span>
+          <span>Session active</span>
 
-          {session && (
+          {/* ✅ LOGOUT NEXTAUTH OFFICIEL */}
+          <form action="/api/auth/signout" method="POST">
             <button
-              onClick={() =>
-                signOut({
-                  redirect: true,
-                  callbackUrl: '/login',
-                })
-              }
+              type="submit"
               style={{
-                padding: '6px 10px',
+                padding: '6px 12px',
                 background: 'red',
                 color: 'white',
                 borderRadius: 6,
-                cursor: 'pointer',
                 fontWeight: 'bold',
+                cursor: 'pointer',
               }}
             >
               SE DÉCONNECTER
             </button>
-          )}
+          </form>
         </div>
 
         {children}
