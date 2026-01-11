@@ -1,22 +1,55 @@
-/**
- * Admin Layout - STATIQUE
- * ZÉRO getServerSession() bloquant
- * L'auth est gérée par le middleware + composant client
- */
+'use client';
 
-import { ReactNode, Suspense } from 'react';
-import { AdminShell } from '@/components/admin/AdminShell';
-import { AdminSkeleton } from '@/components/admin/AdminSkeleton';
+import { signOut } from 'next-auth/react';
+import { Inter } from 'next/font/google';
+import '../globals.css';
 
-export default function AdminLayout({ children }: { children: ReactNode }) {
-  // Layout STATIQUE - render immédiat
-  // Le middleware a déjà vérifié l'auth et redirigé si nécessaire
-  // Ici on render TOUJOURS
+const inter = Inter({ subsets: ['latin'] });
+
+export default function AdminLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <Suspense fallback={<AdminSkeleton />}>
-      <AdminShell>
+    <html lang="fr">
+      <body className={inter.className}>
+        {/* 🔴 BARRE ADMIN FIXE */}
+        <div
+          style={{
+            padding: '12px 16px',
+            background: '#000',
+            color: 'white',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            fontSize: 14,
+            fontWeight: 'bold',
+          }}
+        >
+          <span>ADMIN</span>
+
+          <button
+            onClick={() =>
+              signOut({
+                redirect: true,
+                callbackUrl: '/login',
+              })
+            }
+            style={{
+              padding: '6px 12px',
+              background: 'red',
+              color: 'white',
+              borderRadius: 6,
+              cursor: 'pointer',
+            }}
+          >
+            SE DÉCONNECTER
+          </button>
+        </div>
+
         {children}
-      </AdminShell>
-    </Suspense>
+      </body>
+    </html>
   );
 }
